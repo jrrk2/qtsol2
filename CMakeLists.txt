@@ -17,7 +17,8 @@ qt6_add_executable(Sol2QtApp
 	sol2qtmainwindow.cpp
 	LuaControlledWidget.hpp
 	LuaWindowFactory.hpp
-        LuaChartWidget.hpp        # New chart widget
+        LuaChartWidget.hpp
+	GenericDataTableWidget.hpp
 	sol2qtmainwindow.hpp
 )
 

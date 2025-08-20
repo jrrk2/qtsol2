@@ -7,6 +7,7 @@
 #include "LuaChartWidget.hpp"
 #include "LuaMatrix.hpp"
 #include "AcceleratedMatrix.hpp"
+#include "GenericDataTableWidget.hpp"
 #include <sol/sol.hpp>
 #include <sol/types.hpp>
 
@@ -1794,6 +1795,102 @@ void Sol2QtMainWindow::initializeSol2()
     // Accurate GFLOPS calculation
     lua->set_function("calculate_gflops_precise", [](double operations, double time_us) -> double {
         return operations / (time_us * 1e-6) / 1e9;  // GFLOPS
+    });
+    
+    // Bind GenericDataTableWidget
+    lua->new_usertype<GenericDataTableWidget>("DataTable",
+        sol::constructors<GenericDataTableWidget(const QString&, QWidget*)>(),
+        
+        "displayData", [this](GenericDataTableWidget& table, const sol::object& data, const std::string& name) {
+            table.setLuaState(lua);
+            table.displayData(data, QString::fromStdString(name));
+        },
+        
+        "show", &GenericDataTableWidget::show,
+        "clearTable", &GenericDataTableWidget::clearTable,
+        "refreshDisplay", &GenericDataTableWidget::refreshDisplay
+    );
+    
+    // Factory function for data tables
+    lua->set_function("create_data_table", [](const std::string& title) {
+        GenericDataTableWidget* table = new GenericDataTableWidget(QString::fromStdString(title));
+        return table;
+    });
+    
+    // Convenience function to display any data
+    lua->set_function("show_data", [this](const sol::object& data, const std::string& name) {
+        GenericDataTableWidget* table = new GenericDataTableWidget(QString::fromStdString("Data Viewer: " + name));
+        table->setLuaState(lua);
+        table->displayData(data, QString::fromStdString(name));
+        table->show();
+        return table;
+    });
+    
+    // Matrix display helper
+    lua->set_function("show_matrix", [this](const LuaMatrix& matrix, const std::string& name) {
+        GenericDataTableWidget* table = new GenericDataTableWidget(QString::fromStdString("Matrix: " + name));
+        table->setLuaState(lua);
+        
+        // Convert matrix to Lua table format
+        sol::table matrixTable = lua->create_table();
+        
+        for (size_t i = 0; i < matrix.getRows(); ++i) {
+            sol::table row = lua->create_table();
+            for (size_t j = 0; j < matrix.getCols(); ++j) {
+                row[j + 1] = matrix.get(i, j);  // Lua 1-based indexing
+            }
+            matrixTable[i + 1] = row;
+        }
+        
+        table->displayData(matrixTable, QString::fromStdString(name));
+        table->show();
+        return table;
+    });
+    
+    // Accelerated matrix display helper
+    lua->set_function("show_accelerated_matrix", [this](const AcceleratedMatrix& matrix, const std::string& name) {
+        GenericDataTableWidget* table = new GenericDataTableWidget(QString::fromStdString("Accelerated Matrix: " + name));
+        table->setLuaState(lua);
+        
+        // Convert matrix to Lua table format
+        sol::table matrixTable = lua->create_table();
+        
+        for (size_t i = 0; i < matrix.getRows(); ++i) {
+            sol::table row = lua->create_table();
+            for (size_t j = 0; j < matrix.getCols(); ++j) {
+                row[j + 1] = matrix.get(i, j);  // Lua 1-based indexing
+            }
+            matrixTable[i + 1] = row;
+        }
+        
+        table->displayData(matrixTable, QString::fromStdString(name));
+        table->show();
+        return table;
+    });
+    
+    // Vector display helper
+    lua->set_function("show_vector", [this](const std::vector<double>& vec, const std::string& name) {
+        GenericDataTableWidget* table = new GenericDataTableWidget(QString::fromStdString("Vector: " + name));
+        table->setLuaState(lua);
+        
+        // Convert vector to Lua table
+        sol::table vecTable = lua->create_table();
+        for (size_t i = 0; i < vec.size(); ++i) {
+            vecTable[i + 1] = vec[i];
+        }
+        
+        table->displayData(vecTable, QString::fromStdString(name));
+        table->show();
+        return table;
+    });
+    
+    // Performance data helper
+    lua->set_function("show_performance_data", [this](const sol::table& perfData, const std::string& title) {
+        GenericDataTableWidget* table = new GenericDataTableWidget(QString::fromStdString("Performance: " + title));
+        table->setLuaState(lua);
+        table->displayData(perfData, QString::fromStdString(title));
+        table->show();
+        return table;
     });
     
     // Make objects available to Lua
