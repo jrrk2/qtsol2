@@ -5,6 +5,8 @@
 #include "LuaControlledWidget.hpp"
 #include "LuaWindowFactory.hpp"
 #include "LuaChartWidget.hpp"
+#include "LuaMatrix.hpp"
+#include "AcceleratedMatrix.hpp"
 #include <sol/sol.hpp>
 #include <sol/types.hpp>
 
@@ -938,6 +940,862 @@ void Sol2QtMainWindow::initializeSol2()
 	return chartWidget;
     });
 
+    // Bind basic matrix class
+    lua->new_usertype<LuaMatrix>("Matrix",
+        // Constructors
+        sol::constructors<LuaMatrix(size_t, size_t)>(),
+        
+        // Basic operations
+        "get", &LuaMatrix::get,
+        "set", &LuaMatrix::set,
+        "getRows", &LuaMatrix::getRows,
+        "getCols", &LuaMatrix::getCols,
+        
+        // Matrix operations
+        "multiply", &LuaMatrix::multiply,
+        "add", &LuaMatrix::add,
+        "subtract", &LuaMatrix::subtract,
+        "transpose", &LuaMatrix::transpose,
+        "scale", &LuaMatrix::scale,
+        "determinant", &LuaMatrix::determinant,
+        
+        // Utility functions
+        "fillRandom", sol::overload(
+            [](LuaMatrix& m) { m.fillRandom(); },
+            [](LuaMatrix& m, double min, double max) { m.fillRandom(min, max); }
+        ),
+        "fillIdentity", &LuaMatrix::fillIdentity,
+        "toString", &LuaMatrix::toString,
+        "getRow", &LuaMatrix::getRow,
+        "getCol", &LuaMatrix::getCol
+    );
+    
+    // Matrix creation helpers
+    lua->set_function("create_matrix", [](size_t rows, size_t cols) {
+        return LuaMatrix(rows, cols);
+    });
+    
+    lua->set_function("create_identity", [](size_t size) {
+        LuaMatrix m(size, size);
+        m.fillIdentity();
+        return m;
+    });
+    
+    lua->set_function("create_random_matrix", [](size_t rows, size_t cols, double min, double max) {
+        LuaMatrix m(rows, cols);
+        m.fillRandom(min, max);
+        return m;
+    });
+    
+    // Remove the problematic std::vector<double> binding and replace with these helper functions:
+    
+    // Vector creation functions
+    lua->set_function("create_vector", [](size_t size) {
+        return std::vector<double>(size, 0.0);
+    });
+    
+    lua->set_function("create_vector_from_table", [](const sol::table& t) {
+        std::vector<double> vec;
+        for (size_t i = 1; i <= t.size(); ++i) {  // Lua arrays are 1-indexed
+            vec.push_back(t[i].get_or(0.0));
+        }
+        return vec;
+    });
+    
+    // Vector access functions
+    lua->set_function("vector_get", [](const std::vector<double>& vec, size_t index) -> double {
+        return (index < vec.size()) ? vec[index] : 0.0;
+    });
+    
+    lua->set_function("vector_set", [](std::vector<double>& vec, size_t index, double value) {
+        if (index < vec.size()) {
+            vec[index] = value;
+        }
+    });
+    
+    lua->set_function("vector_size", [](const std::vector<double>& vec) {
+        return vec.size();
+    });
+    
+    lua->set_function("vector_push", [](std::vector<double>& vec, double value) {
+        vec.push_back(value);
+    });
+    
+    lua->set_function("vector_clear", [](std::vector<double>& vec) {
+        vec.clear();
+    });
+    
+    lua->set_function("vector_to_table", [this](const std::vector<double>& vec) {
+        sol::table result = lua->create_table();
+        for (size_t i = 0; i < vec.size(); ++i) {
+            result[i + 1] = vec[i];  // Lua uses 1-based indexing
+        }
+        return result;
+    });
+    
+    lua->set_function("table_to_vector", [](const sol::table& t) {
+        std::vector<double> vec;
+        vec.reserve(t.size());
+        for (size_t i = 1; i <= t.size(); ++i) {
+            vec.push_back(t[i].get_or(0.0));
+        }
+        return vec;
+    });
+
+    // CORRECTED Vector math functions
+    lua->set_function("vector_norm", [](const std::vector<double>& v) -> double {
+        double sum = 0.0;
+        for (const double& x : v) {
+            sum += x * x;
+        }
+        return std::sqrt(sum);
+    });
+    
+    lua->set_function("vector_normalize", [](std::vector<double>& v) -> double {
+        double norm = 0.0;
+        for (const double& x : v) {
+            norm += x * x;
+        }
+        norm = std::sqrt(norm);
+        
+        if (norm > 1e-15) {  // Avoid division by zero
+            for (double& x : v) {
+                x /= norm;
+            }
+        }
+        return norm;  // Return the original norm
+    });
+    
+    lua->set_function("dot_product", [](const std::vector<double>& a, const std::vector<double>& b) -> double {
+        if (a.size() != b.size()) {
+            throw std::invalid_argument("Vectors must be same size for dot product");
+        }
+        double result = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) {
+            result += a[i] * b[i];
+        }
+        return result;
+    });
+    
+    lua->set_function("vector_add", [](const std::vector<double>& a, const std::vector<double>& b) -> std::vector<double> {
+        if (a.size() != b.size()) {
+            throw std::invalid_argument("Vectors must be same size for addition");
+        }
+        std::vector<double> result;
+        result.reserve(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result.push_back(a[i] + b[i]);
+        }
+        return result;
+    });
+    
+    lua->set_function("vector_subtract", [](const std::vector<double>& a, const std::vector<double>& b) -> std::vector<double> {
+        if (a.size() != b.size()) {
+            throw std::invalid_argument("Vectors must be same size for subtraction");
+        }
+        std::vector<double> result;
+        result.reserve(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result.push_back(a[i] - b[i]);
+        }
+        return result;
+    });
+    
+    lua->set_function("vector_scale", [](const std::vector<double>& v, double factor) -> std::vector<double> {
+        std::vector<double> result;
+        result.reserve(v.size());
+        for (const double& x : v) {
+            result.push_back(x * factor);
+        }
+        return result;
+    });
+    
+    // DEBUGGING: Add a simple test function
+    lua->set_function("test_vector_norm_debug", []() -> double {
+        std::vector<double> test_vec = {3.0, 4.0, 0.0};
+        double sum = 0.0;
+        for (const double& x : test_vec) {
+            sum += x * x;
+        }
+        return std::sqrt(sum);  // Should return 5.0
+    });
+    
+    // DEBUGGING: Add verbose vector norm
+    lua->set_function("vector_norm_verbose", [this](const std::vector<double>& v) -> double {
+        outputDisplay->append("Debug: vector_norm_verbose called");
+        outputDisplay->append("Vector size: " + QString::number(v.size()));
+        
+        double sum = 0.0;
+        for (size_t i = 0; i < v.size(); ++i) {
+            outputDisplay->append("v[" + QString::number(i) + "] = " + QString::number(v[i]));
+            sum += v[i] * v[i];
+        }
+        
+        double norm = std::sqrt(sum);
+        outputDisplay->append("Calculated norm: " + QString::number(norm));
+        return norm;
+    });
+    
+    // DEBUGGING: Test if vector contains expected values
+    lua->set_function("debug_vector_contents", [this](const std::vector<double>& v) {
+        outputDisplay->append("=== Debug Vector Contents ===");
+        outputDisplay->append("Size: " + QString::number(v.size()));
+        for (size_t i = 0; i < v.size(); ++i) {
+            outputDisplay->append("  [" + QString::number(i) + "] = " + QString::number(v[i]));
+        }
+        outputDisplay->append("=== End Debug ===");
+    });
+    
+    lua->set_function("vector_cross_product", [](const std::vector<double>& a, const std::vector<double>& b) {
+        if (a.size() != 3 || b.size() != 3) {
+            throw std::invalid_argument("Cross product only defined for 3D vectors");
+        }
+        std::vector<double> result(3);
+        result[0] = a[1] * b[2] - a[2] * b[1];
+        result[1] = a[2] * b[0] - a[0] * b[2];
+        result[2] = a[0] * b[1] - a[1] * b[0];
+        return result;
+    });
+    
+    // Statistics functions for vectors
+    lua->set_function("vector_mean", [](const std::vector<double>& v) {
+        if (v.empty()) return 0.0;
+        double sum = 0.0;
+        for (double x : v) sum += x;
+        return sum / v.size();
+    });
+    
+    lua->set_function("vector_std", [](const std::vector<double>& v) {
+        if (v.size() < 2) return 0.0;
+        
+        double mean = 0.0;
+        for (double x : v) mean += x;
+        mean /= v.size();
+        
+        double variance = 0.0;
+        for (double x : v) {
+            double diff = x - mean;
+            variance += diff * diff;
+        }
+        variance /= (v.size() - 1);  // Sample standard deviation
+        
+        return std::sqrt(variance);
+    });
+    
+    lua->set_function("vector_min", [](const std::vector<double>& v) {
+        if (v.empty()) return 0.0;
+        return *std::min_element(v.begin(), v.end());
+    });
+    
+    lua->set_function("vector_max", [](const std::vector<double>& v) {
+        if (v.empty()) return 0.0;
+        return *std::max_element(v.begin(), v.end());
+    });
+    
+    lua->set_function("vector_sum", [](const std::vector<double>& v) {
+        double sum = 0.0;
+        for (double x : v) sum += x;
+        return sum;
+    });
+    
+    // Enhanced matrix operations that work with the fixed vector system
+    lua->set_function("matrix_vector_multiply", [](const LuaMatrix& matrix, const std::vector<double>& vec) {
+        if (matrix.getCols() != vec.size()) {
+            throw std::invalid_argument("Matrix columns must equal vector size");
+        }
+        
+        std::vector<double> result(matrix.getRows(), 0.0);
+        for (size_t i = 0; i < matrix.getRows(); ++i) {
+            for (size_t j = 0; j < matrix.getCols(); ++j) {
+                result[i] += matrix.get(i, j) * vec[j];
+            }
+        }
+        return result;
+    });
+    
+    lua->set_function("matrix_get_row_vector", [](const LuaMatrix& matrix, size_t row) {
+        if (row >= matrix.getRows()) throw std::out_of_range("Row index out of range");
+        std::vector<double> result(matrix.getCols());
+        for (size_t j = 0; j < matrix.getCols(); ++j) {
+            result[j] = matrix.get(row, j);
+        }
+        return result;
+    });
+    
+    lua->set_function("matrix_get_col_vector", [](const LuaMatrix& matrix, size_t col) {
+        if (col >= matrix.getCols()) throw std::out_of_range("Column index out of range");
+        std::vector<double> result(matrix.getRows());
+        for (size_t i = 0; i < matrix.getRows(); ++i) {
+            result[i] = matrix.get(i, col);
+        }
+        return result;
+    });
+    
+    lua->set_function("matrix_set_row_vector", [](LuaMatrix& matrix, size_t row, const std::vector<double>& vec) {
+        if (row >= matrix.getRows()) throw std::out_of_range("Row index out of range");
+        if (vec.size() != matrix.getCols()) throw std::invalid_argument("Vector size must match matrix columns");
+        
+        for (size_t j = 0; j < matrix.getCols(); ++j) {
+            matrix.set(row, j, vec[j]);
+        }
+    });
+    
+    lua->set_function("matrix_set_col_vector", [](LuaMatrix& matrix, size_t col, const std::vector<double>& vec) {
+        if (col >= matrix.getCols()) throw std::out_of_range("Column index out of range");
+        if (vec.size() != matrix.getRows()) throw std::invalid_argument("Vector size must match matrix rows");
+        
+        for (size_t i = 0; i < matrix.getRows(); ++i) {
+            matrix.set(i, col, vec[i]);
+        }
+    });
+    
+    // Vector math functions
+    lua->set_function("dot_product", [](const std::vector<double>& a, const std::vector<double>& b) {
+        if (a.size() != b.size()) throw std::invalid_argument("Vectors must be same size");
+        double result = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) {
+            result += a[i] * b[i];
+        }
+        return result;
+    });
+    
+    lua->set_function("vector_norm", [](const std::vector<double>& v) {
+        double sum = 0.0;
+        for (double x : v) sum += x * x;
+        return std::sqrt(sum);
+    });
+    
+    lua->set_function("vector_normalize", [](std::vector<double>& v) {
+        double norm = 0.0;
+        for (double x : v) norm += x * x;
+        norm = std::sqrt(norm);
+        if (norm > 0) {
+            for (double& x : v) x /= norm;
+        }
+    });
+    
+    // Performance timing utilities
+    lua->set_function("get_time_ms", []() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()
+        ).count();
+    });
+
+    // Bind AcceleratedMatrix class for high-performance linear algebra
+    lua->new_usertype<AcceleratedMatrix>("AcceleratedMatrix",
+        // Constructors
+        sol::constructors<AcceleratedMatrix(size_t, size_t)>(),
+        
+        // Basic operations
+        "get", &AcceleratedMatrix::get,
+        "set", &AcceleratedMatrix::set,
+        "getRows", &AcceleratedMatrix::getRows,
+        "getCols", &AcceleratedMatrix::getCols,
+        
+        // Standard matrix operations
+        "multiply", &AcceleratedMatrix::multiply,
+        "add", &AcceleratedMatrix::add,
+        "subtract", &AcceleratedMatrix::subtract,
+        "transpose", &AcceleratedMatrix::transpose,
+        "scale", &AcceleratedMatrix::scale,
+        "determinant", &AcceleratedMatrix::determinant,
+        "norm", &AcceleratedMatrix::norm,
+        
+#ifdef __APPLE__
+        // High-performance Accelerate operations
+        "multiplyAccelerate", &AcceleratedMatrix::multiplyAccelerate,
+
+    // Replace the multiplyVector binding with this version:
+    "multiplyVector", [this](const AcceleratedMatrix& matrix, const sol::table& vec_table) -> sol::table {
+	try {
+	    // Convert Lua table to std::vector<double>
+	    std::vector<double> input_vector;
+	    input_vector.reserve(vec_table.size());
+
+	    for (size_t i = 1; i <= vec_table.size(); ++i) {  // Lua 1-based indexing
+		input_vector.push_back(vec_table[i].get_or(0.0));
+	    }
+
+	    auto result_vector = matrix.multiplyVector(input_vector);
+
+	    // Convert result back to Lua table
+	    sol::table result = lua->create_table();
+	    for (size_t i = 0; i < result_vector.size(); ++i) {
+		result[i + 1] = result_vector[i];  // Lua 1-based indexing
+	    }
+
+	    return result;
+
+	} catch (const std::exception& e) {
+	    outputDisplay->append("Matrix-vector multiply error: " + QString::fromStdString(e.what()));
+	    return lua->create_table();  // Return empty table on error
+	}
+    },
+        
+        // LAPACK operations
+        "inverse", &AcceleratedMatrix::inverse,
+    // Fixed eigenvalue binding that returns proper Lua table
+    "eigenvalues", [this](const AcceleratedMatrix& matrix) -> sol::table {
+        try {
+            auto eigenvalue_pair = matrix.eigenvalues();
+            
+            sol::table result = lua->create_table();
+            sol::table real_parts = lua->create_table();
+            sol::table imag_parts = lua->create_table();
+            
+            const auto& real_vals = eigenvalue_pair.first;
+            const auto& imag_vals = eigenvalue_pair.second;
+            
+            // Fill real parts
+            for (size_t i = 0; i < real_vals.size(); ++i) {
+                real_parts[i + 1] = real_vals[i];  // Lua 1-based indexing
+            }
+            
+            // Fill imaginary parts  
+            for (size_t i = 0; i < imag_vals.size(); ++i) {
+                imag_parts[i + 1] = imag_vals[i];
+            }
+            
+            result["real"] = real_parts;
+            result["imag"] = imag_parts;
+            result[1] = real_parts;  // For backward compatibility
+            result[2] = imag_parts;
+            
+            return result;
+            
+        } catch (const std::exception& e) {
+            outputDisplay->append("Eigenvalue error: " + QString::fromStdString(e.what()));
+            return lua->create_table();  // Return empty table on error
+        }
+    },
+    
+// Quick fix for linear solve binding in initializeSol2()
+
+// Replace the solve binding with this version that handles Lua tables:
+
+    "solve", [this](const AcceleratedMatrix& matrix, const sol::table& b_table) -> sol::table {
+	try {
+	    // Convert Lua table to std::vector<double>
+	    std::vector<double> b_vector;
+	    b_vector.reserve(b_table.size());
+
+	    for (size_t i = 1; i <= b_table.size(); ++i) {  // Lua 1-based indexing
+		b_vector.push_back(b_table[i].get_or(0.0));
+	    }
+
+	    auto solution = matrix.solve(b_vector);
+
+	    sol::table result = lua->create_table();
+	    for (size_t i = 0; i < solution.size(); ++i) {
+		result[i + 1] = solution[i];  // Lua 1-based indexing
+	    }
+
+	    return result;
+
+	} catch (const std::exception& e) {
+	    outputDisplay->append("Linear solve error: " + QString::fromStdString(e.what()));
+	    return lua->create_table();  // Return empty table on error
+	}
+    },    
+    // Enhanced QR decomposition binding
+    "qrDecomposition", [this](const AcceleratedMatrix& matrix) -> sol::table {
+        try {
+            auto qr_result = matrix.qrDecomposition();
+            
+            sol::table result = lua->create_table();
+            result["Q"] = qr_result.first;
+            result["R"] = qr_result.second;
+            result[1] = qr_result.first;   // For backward compatibility
+            result[2] = qr_result.second;
+            
+            return result;
+            
+        } catch (const std::exception& e) {
+            outputDisplay->append("QR decomposition error: " + QString::fromStdString(e.what()));
+            return lua->create_table();
+        }
+    },
+    
+    // Enhanced SVD binding
+    "svd", [this](const AcceleratedMatrix& matrix) -> sol::table {
+        try {
+	    // SVD using Accelerate LAPACK
+	    AcceleratedMatrix a_copy = matrix;
+
+	    int m = static_cast<int>(matrix.getRows());
+	    int n = static_cast<int>(matrix.getCols());
+	    int lda = m;
+	    int min_mn = std::min(m, n);
+
+	    char jobu = 'A', jobvt = 'A';  // Compute full U and VT
+
+	    AcceleratedMatrix U(m, m);
+	    AcceleratedMatrix VT(n, n);
+	    std::vector<double> S(min_mn);
+
+	    int ldu = m, ldvt = n;
+
+	    // Query optimal workspace size
+	    double work_query;
+	    int lwork = -1;
+	    int info;
+
+	    dgesvd_(&jobu, &jobvt, &m, &n, a_copy.getData(), &lda,
+		    S.data(), U.getData(), &ldu, VT.getData(), &ldvt,
+		    &work_query, &lwork, &info);
+
+	    // Perform SVD
+	    lwork = static_cast<int>(work_query);
+	    std::vector<double> work(lwork);
+
+	    dgesvd_(&jobu, &jobvt, &m, &n, a_copy.getData(), &lda,
+		    S.data(), U.getData(), &ldu, VT.getData(), &ldvt,
+		    work.data(), &lwork, &info);
+
+	    if (info < 0) {
+		throw std::runtime_error("LAPACK dgesvd: illegal parameter at position " + std::to_string(-info));
+	    } else if (info > 0) {
+		throw std::runtime_error("SVD failed to converge");
+	    }
+            
+            sol::table result = lua->create_table();
+            result["U"] = U;
+            result["S"] = lua->create_table();
+            result["VT"] = VT;
+            
+            // Fill singular values table
+            sol::table S_table = result["S"];
+            for (size_t i = 0; i < S.size(); ++i) {
+                S_table[i + 1] = S[i];
+            }
+            
+            return result;
+            
+        } catch (const std::exception& e) {
+            outputDisplay->append("SVD error: " + QString::fromStdString(e.what()));
+            return lua->create_table();
+        }
+    },
+        "luFactorization", &AcceleratedMatrix::luFactorization,
+        "qrDecomposition", &AcceleratedMatrix::qrDecomposition,
+//        "svd", &AcceleratedMatrix::svd,
+#endif
+        // Utility functions
+        "fillRandom", sol::overload(
+            [](AcceleratedMatrix& m) { m.fillRandom(); },
+            [](AcceleratedMatrix& m, double min, double max) { m.fillRandom(min, max); }
+        ),
+	"fillIdentity", &AcceleratedMatrix::fillIdentity,
+        "toString", &AcceleratedMatrix::toString
+    );
+    
+    // Factory functions for accelerated matrices
+    lua->set_function("create_accelerated_matrix", [](size_t rows, size_t cols) {
+        return AcceleratedMatrix(rows, cols);
+    });
+    
+    lua->set_function("create_accelerated_identity", [](size_t size) {
+        AcceleratedMatrix m(size, size);
+        m.fillIdentity();
+        return m;
+    });
+
+    lua->set_function("create_accelerated_random", [](size_t rows, size_t cols, double min, double max) {
+        AcceleratedMatrix m(rows, cols);
+        m.fillRandom(min, max);
+        return m;
+    });
+
+    // Performance timing utilities
+    lua->set_function("benchmark_matrix_multiply", [](size_t size, int iterations) {
+        AcceleratedMatrix a(size, size);
+        AcceleratedMatrix b(size, size);
+        a.fillRandom(-1, 1);
+        b.fillRandom(-1, 1);
+        
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        for (int i = 0; i < iterations; ++i) {
+#ifdef __APPLE__
+            auto result = a.multiplyAccelerate(b);
+#else
+            auto result = a.multiply(b);
+#endif
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        return duration.count();
+    });
+
+    // Memory usage estimation
+    lua->set_function("estimate_matrix_memory", [](size_t rows, size_t cols) {
+        double bytes = rows * cols * sizeof(double);
+        double mb = bytes / (1024.0 * 1024.0);
+        return mb;
+    });
+    
+    // System information
+    lua->set_function("get_accelerate_info", []() -> std::string {
+#ifdef __APPLE__
+        return "macOS Accelerate Framework available\n"
+               "- Optimized BLAS/LAPACK routines\n"
+               "- Multi-threaded operations\n"
+               "- SIMD vectorization\n"
+               "- Apple Silicon / Intel optimized";
+#else
+        return "Accelerate Framework not available\n"
+               "Using basic C++ implementations";
+#endif
+    });
+    
+    // FLOPS calculation utilities
+    lua->set_function("calculate_gflops", [](size_t matrix_size, double time_ms) {
+        double flops = 2.0 * matrix_size * matrix_size * matrix_size;  // Matrix multiply FLOPs
+        double gflops = flops / (time_ms * 1e6);  // Convert to GFLOPS
+        return gflops;
+    });
+
+    // Condition number estimation
+    lua->set_function("estimate_condition_number", [](const AcceleratedMatrix& matrix) -> double {
+#ifdef __APPLE__
+        try {
+	    // SVD using Accelerate LAPACK
+	    AcceleratedMatrix a_copy = matrix;
+
+	    int m = static_cast<int>(matrix.getRows());
+	    int n = static_cast<int>(matrix.getCols());
+	    int lda = m;
+	    int min_mn = std::min(m, n);
+
+	    char jobu = 'A', jobvt = 'A';  // Compute full U and VT
+
+	    AcceleratedMatrix U(m, m);
+	    AcceleratedMatrix VT(n, n);
+	    std::vector<double> S(min_mn);
+
+	    int ldu = m, ldvt = n;
+
+	    // Query optimal workspace size
+	    double work_query;
+	    int lwork = -1;
+	    int info;
+
+	    dgesvd_(&jobu, &jobvt, &m, &n, a_copy.getData(), &lda,
+		    S.data(), U.getData(), &ldu, VT.getData(), &ldvt,
+		    &work_query, &lwork, &info);
+
+	    // Perform SVD
+	    lwork = static_cast<int>(work_query);
+	    std::vector<double> work(lwork);
+
+	    dgesvd_(&jobu, &jobvt, &m, &n, a_copy.getData(), &lda,
+		    S.data(), U.getData(), &ldu, VT.getData(), &ldvt,
+		    work.data(), &lwork, &info);
+
+	    if (info < 0) {
+		throw std::runtime_error("LAPACK dgesvd: illegal parameter at position " + std::to_string(-info));
+	    } else if (info > 0) {
+		throw std::runtime_error("SVD failed to converge");
+	    }
+        
+            const auto& singular_values = S;
+            if (singular_values.empty()) return -1.0;
+            
+            double max_sv = *std::max_element(singular_values.begin(), singular_values.end());
+            double min_sv = *std::min_element(singular_values.begin(), singular_values.end());
+            
+            if (min_sv < 1e-15) return std::numeric_limits<double>::infinity();
+            
+            return max_sv / min_sv;
+        } catch (...) {
+            return -1.0;  // Error in computation
+        }
+#else
+        // Basic estimation using determinant (not accurate but gives some indication)
+        try {
+            double det = matrix.determinant();
+            return std::abs(det) < 1e-12 ? 1e12 : 1.0 / std::abs(det);
+        } catch (...) {
+            return -1.0;
+        }
+#endif
+    });
+
+    // Matrix comparison utilities
+    lua->set_function("matrix_difference_norm", [](const AcceleratedMatrix& a, const AcceleratedMatrix& b) {
+        if (a.getRows() != b.getRows() || a.getCols() != b.getCols()) {
+            throw std::invalid_argument("Matrices must have same dimensions");
+        }
+        
+        auto diff = a.subtract(b);
+        return diff.norm();
+    });
+    
+    // Advanced matrix generators
+    lua->set_function("create_hilbert_matrix", [](size_t n) {
+        AcceleratedMatrix hilbert(n, n);
+        for (size_t i = 0; i < n; ++i) {
+            for (size_t j = 0; j < n; ++j) {
+                hilbert.set(i, j, 1.0 / (i + j + 1.0));
+            }
+        }
+        return hilbert;
+    });
+    
+    lua->set_function("create_vandermonde_matrix", [](const std::vector<double>& x_vals, size_t degree) {
+        size_t n = x_vals.size();
+        AcceleratedMatrix vander(n, degree + 1);
+        
+        for (size_t i = 0; i < n; ++i) {
+            double x = x_vals[i];
+            double x_power = 1.0;
+            
+            for (size_t j = 0; j <= degree; ++j) {
+                vander.set(i, j, x_power);
+                x_power *= x;
+            }
+        }
+        
+        return vander;
+    });
+    
+    lua->set_function("create_toeplitz_matrix", [](const std::vector<double>& first_row, 
+                                                   const std::vector<double>& first_col) {
+        size_t n = first_row.size();
+        if (first_col.size() != n) {
+            throw std::invalid_argument("First row and column must have same length");
+        }
+        
+        AcceleratedMatrix toeplitz(n, n);
+        
+        for (size_t i = 0; i < n; ++i) {
+            for (size_t j = 0; j < n; ++j) {
+                if (j >= i) {
+                    toeplitz.set(i, j, first_row[j - i]);
+                } else {
+                    toeplitz.set(i, j, first_col[i - j]);
+                }
+            }
+        }
+        
+        return toeplitz;
+    });
+    
+    // Specialized linear algebra functions
+    lua->set_function("solve_least_squares", [](const AcceleratedMatrix& A, const std::vector<double>& b) {
+#ifdef __APPLE__
+        // Use QR decomposition for least squares: A = QR, then solve Rx = Q^T b
+        try {
+            auto [Q, R] = A.qrDecomposition();
+            auto QT_b = Q.transpose().multiplyVector(b);
+            
+            // Back-substitution for upper triangular R
+            size_t n = R.getCols();
+            std::vector<double> x(n, 0.0);
+            
+            for (int i = n - 1; i >= 0; --i) {
+                double sum = QT_b[i];
+                for (size_t j = i + 1; j < n; ++j) {
+                    sum -= R.get(i, j) * x[j];
+                }
+                x[i] = sum / R.get(i, i);
+            }
+            
+            return x;
+        } catch (...) {
+            // Fallback to normal equations
+            auto AT = A.transpose();
+            auto ATA = AT.multiplyAccelerate(A);
+            auto ATb = AT.multiplyVector(b);
+            return ATA.solve(ATb);
+        }
+#else
+        // Normal equations: (A^T A) x = A^T b
+        auto AT = A.transpose();
+        auto ATA = AT.multiply(A);
+        auto ATb = AT.multiplyVector(b);
+        return ATA.solve(ATb);
+#endif
+    });
+    
+    // ... rest of existing initializeSol2() code ...
+    
+    outputDisplay->append("Accelerated matrix processing ready!");
+    outputDisplay->append("macOS Accelerate Framework: " + 
+#ifdef __APPLE__
+                         QString("Available")
+#else
+                         QString("Not Available")
+#endif
+    );
+
+    // High-resolution timing functions
+    lua->set_function("get_time_us", []() -> long long {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()
+        ).count();
+    });
+    
+    lua->set_function("get_time_ns", []() -> long long {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()
+        ).count();
+    });
+    
+    // Performance timing helper
+    lua->set_function("time_operation", [this](const sol::function& operation, int iterations) -> sol::table {
+        std::vector<double> times;
+        times.reserve(iterations);
+        
+        // Warm up
+        for (int i = 0; i < std::min(3, iterations); ++i) {
+            operation();
+        }
+        
+        // Measure
+        for (int i = 0; i < iterations; ++i) {
+            auto start = std::chrono::high_resolution_clock::now();
+            operation();
+            auto end = std::chrono::high_resolution_clock::now();
+            
+            auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+            times.push_back(static_cast<double>(duration_us));
+        }
+        
+        // Calculate statistics
+        std::sort(times.begin(), times.end());
+        
+        double sum = std::accumulate(times.begin(), times.end(), 0.0);
+        double mean = sum / times.size();
+        double median = times[times.size() / 2];
+        double min_time = times.front();
+        double max_time = times.back();
+        
+        // Calculate standard deviation
+        double variance = 0.0;
+        for (double time : times) {
+            variance += (time - mean) * (time - mean);
+        }
+        double std_dev = std::sqrt(variance / times.size());
+        
+        sol::table result = lua->create_table();
+        result["mean_us"] = mean;
+        result["median_us"] = median;
+        result["min_us"] = min_time;
+        result["max_us"] = max_time;
+        result["std_dev_us"] = std_dev;
+        result["iterations"] = iterations;
+        
+        return result;
+    });
+    
+    // Accurate GFLOPS calculation
+    lua->set_function("calculate_gflops_precise", [](double operations, double time_us) -> double {
+        return operations / (time_us * 1e-6) / 1e9;  // GFLOPS
+    });
+    
     // Make objects available to Lua
     (*lua)["app_widget"] = controlWidget;
     (*lua)["window_factory"] = windowFactory;

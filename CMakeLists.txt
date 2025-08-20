@@ -28,6 +28,7 @@ target_include_directories(Sol2QtApp PRIVATE
 )
 
 target_compile_options(Sol2QtApp PRIVATE
+    -Wno-deprecated-declarations
     -g
     )
     
@@ -37,6 +38,13 @@ target_link_libraries(Sol2QtApp PRIVATE
     Qt6::Charts 
     ${LUA_LIBRARY}
 )
+
+if(APPLE)
+    find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
+    message(STATUS "Found Accelerate Framework: ${ACCELERATE_FRAMEWORK}")
+    target_link_libraries(Sol2QtApp PRIVATE ${ACCELERATE_FRAMEWORK})
+    target_compile_definitions(Sol2QtApp PRIVATE USE_ACCELERATE_FRAMEWORK=1)
+endif()
 
 target_compile_definitions(Sol2QtApp PRIVATE
     SOL_ALL_SAFETIES_ON=1
