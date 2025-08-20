@@ -81,7 +81,7 @@ private slots:
     void runScript();
     void executeConsoleLine();
     void clearOutput();
-    void loadExample();
+  //    void loadExample();
     void onControlWidgetSignal(const QString& text);
     
     // File operations
@@ -106,11 +106,11 @@ private:
     ConsoleLineEdit* consoleInput;
     QPushButton* runButton;
     QPushButton* clearButton;
-    QPushButton* loadExampleButton;
+  //    QPushButton* loadExampleButton;
     QPushButton* executeLineButton;
     QPushButton* openScriptButton;
     QPushButton* saveScriptButton;
-    QWidget* controlPanel;
+  //    QWidget* controlPanel;
     
     // Menu components
     QMenu* fileMenu;
@@ -124,7 +124,7 @@ private:
     
     // Lua and Qt integration
     sol::state* lua;
-    LuaControlledWidget* controlWidget;
+  //    LuaControlledWidget* controlWidget;
     LuaWindowFactory* windowFactory;
     
     // Console functionality

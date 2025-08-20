@@ -184,14 +184,13 @@ void Sol2QtMainWindow::clearOutput()
 {
     outputDisplay->clear();
 }
-
+/*
 void Sol2QtMainWindow::loadExample() 
 {
     QString example = R"(-- Sol2 + Qt6 Integration Example
 print("=== Sol2 Lua Integration Demo ===")
 
 -- Access the widget through Sol2 binding
-widget = app_widget
 
 -- Call Qt methods via Sol2
 widget:setStatusString("Sol2 script is running!")
@@ -258,7 +257,7 @@ return "Sol2 integration successful! Slider: " .. slider_val
     
     scriptEditor->setPlainText(example);
 }
-
+*/
 void Sol2QtMainWindow::onControlWidgetSignal(const QString& text) 
 {
     outputDisplay->append(QString("Qt Signal: %1").arg(text));
@@ -334,11 +333,12 @@ void Sol2QtMainWindow::setupMenuBar()
     scriptMenu->addAction(clearOutputAction);
     
     scriptMenu->addSeparator();
-    
+    /*    
     QAction* loadExampleAction = new QAction("Load &Example", this);
     loadExampleAction->setStatusTip("Load an example script");
     connect(loadExampleAction, &QAction::triggered, this, &Sol2QtMainWindow::loadExample);
     scriptMenu->addAction(loadExampleAction);
+    */
 }
 
 void Sol2QtMainWindow::setupUI() 
@@ -373,7 +373,6 @@ void Sol2QtMainWindow::setupUI()
     
     scriptEditor = new QTextEdit();
     scriptEditor->setFont(QFont("Consolas", 12));
-    scriptEditor->setPlainText("-- Sol2 + Qt6 script\nprint(\"Hello from Sol2!\")\napp_widget:setStatusString(\"Sol2 is working!\")\nreturn \"Success!\"\n");
     editorLayout->addWidget(scriptEditor);
     
     // Enhanced button layout with file operations
@@ -389,17 +388,17 @@ void Sol2QtMainWindow::setupUI()
     
     runButton = new QPushButton("Run Script (F5)");
     runButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; padding: 8px; }");
-    
+    /*    
     loadExampleButton = new QPushButton("Load Example");
     loadExampleButton->setStyleSheet("QPushButton { background-color: #2196F3; color: white; padding: 8px; }");
-    
+    */
     clearButton = new QPushButton("Clear Output");
     clearButton->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px; }");
     
     buttonLayout->addWidget(openScriptButton);
     buttonLayout->addWidget(saveScriptButton);
     buttonLayout->addWidget(runButton);
-    buttonLayout->addWidget(loadExampleButton);
+    //    buttonLayout->addWidget(loadExampleButton);
     buttonLayout->addWidget(clearButton);
     buttonLayout->addStretch();
     
@@ -447,15 +446,15 @@ void Sol2QtMainWindow::setupUI()
     
     leftLayout->addWidget(splitter);
     mainLayout->addWidget(leftWidget, 2);
-    
+    /*    
     // Right side - Qt widgets controlled by Lua
     setupControlPanel();
     mainLayout->addWidget(controlPanel, 1);
-    
+    */
     // Connect signals
     connect(runButton, &QPushButton::clicked, this, &Sol2QtMainWindow::runScript);
     connect(clearButton, &QPushButton::clicked, this, &Sol2QtMainWindow::clearOutput);
-    connect(loadExampleButton, &QPushButton::clicked, this, &Sol2QtMainWindow::loadExample);
+    //    connect(loadExampleButton, &QPushButton::clicked, this, &Sol2QtMainWindow::loadExample);
     connect(executeLineButton, &QPushButton::clicked, this, &Sol2QtMainWindow::executeConsoleLine);
     
     // Set focus to console input for immediate typing
@@ -643,6 +642,7 @@ void Sol2QtMainWindow::dropEvent(QDropEvent* event)
     }
 }
 
+/*
 void Sol2QtMainWindow::setupControlPanel() 
 {
     controlPanel = new QGroupBox("Qt6 Widgets (Sol2 Controlled)");
@@ -674,7 +674,7 @@ void Sol2QtMainWindow::setupControlPanel()
                 outputDisplay->append(QString("Slider value: %1").arg(value));
             });
 }
-// Enhanced initializeSol2() method for sol2qtmainwindow.cpp
+*/
 
 // Enhanced initializeSol2() method with script loading support
 
@@ -1797,12 +1797,11 @@ void Sol2QtMainWindow::initializeSol2()
     });
     
     // Make objects available to Lua
-    (*lua)["app_widget"] = controlWidget;
     (*lua)["window_factory"] = windowFactory;
     (*lua)["main_window"] = this;
     
     outputDisplay->append("Sol2 Lua integration initialized with script loading!");
-    outputDisplay->append("Available objects: app_widget, main_window, window_factory");
+    outputDisplay->append("Available objects: main_window, window_factory");
     outputDisplay->append("");
     outputDisplay->append("=== Script Loading Methods ===");
     outputDisplay->append("1. File Menu: File → Open Script");

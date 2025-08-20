@@ -5,7 +5,7 @@ print("=== High-Resolution Performance Analysis ===")
 -- Test 1: Microsecond timing of individual operations
 print("\n1. Microsecond-Precision Individual Operations:")
 
-local test_sizes = {50, 100, 200, 300}
+local test_sizes = {50, 100, 150, 200, 250, 300}
 
 print("Size | Mean (μs) | Median (μs) | Min (μs) | Max (μs) | Std Dev | GFLOPS")
 print("-----|-----------|-------------|----------|----------|---------|--------")
