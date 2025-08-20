@@ -38,7 +38,11 @@ private:
     QSpinBox* precisionSpin;
     QCheckBox* showIndicesCheck;
     QLineEdit* filterEdit;
-    
+    QStringList customHeaders;
+    QStringList customRowLabels;
+    QString matrixTitle;
+    QString matrixDescription;
+        
     sol::state* luaState;
     sol::object currentData;
 
@@ -197,7 +201,35 @@ public:
         }
     }
 
+    void setCustomHeaders(const QStringList& headers) {
+        customHeaders = headers;
+        if (table) {
+            table->setHorizontalHeaderLabels(headers);
+        }
+    }
+    
+    void setCustomRowLabels(const QStringList& rowLabels) {
+        customRowLabels = rowLabels;
+        if (table && table->rowCount() == rowLabels.size()) {
+            table->setVerticalHeaderLabels(rowLabels);
+        }
+    }
+    
+    void setMatrixMetadata(const QString& title, const QString& description) {
+        matrixTitle = title;
+        matrixDescription = description;
+        updateInfoDisplay();
+    }
+  
 private:
+    void updateInfoDisplay() {
+        QString info = QString("Matrix: %1").arg(matrixTitle);
+        if (!matrixDescription.isEmpty()) {
+            info += QString(" - %1").arg(matrixDescription);
+        }
+        setInfo(info);
+    }
+  
     void displayTable(const sol::table& luaTable, const QString& tableName)
     {
         // Analyze table structure
@@ -243,51 +275,69 @@ private:
             displayGenericTable(luaTable, tableName);
         }
     }
-    
+  
     void displayMatrixTable(const sol::table& luaTable, const QString& matrixName, size_t rows, size_t cols)
     {
-        setInfo(QString("Matrix: %1 (%2×%3)").arg(matrixName).arg(rows).arg(cols));
-        
-        // Set up headers
-        QStringList headers;
-        if (showIndicesCheck->isChecked()) {
-            headers << "Row";
-        }
-        for (size_t j = 1; j <= cols; ++j) {
-            headers << QString("Col %1").arg(j);
-        }
-        
-        table->setColumnCount(headers.size());
-        table->setHorizontalHeaderLabels(headers);
-        table->setRowCount(rows);
-        
-        // Fill data
-        for (size_t i = 1; i <= rows; ++i) {
-            sol::object rowObj = luaTable[i];
-            if (rowObj.get_type() == sol::type::table) {
-                sol::table row = rowObj.as<sol::table>();
-                
-                int colOffset = 0;
-                if (showIndicesCheck->isChecked()) {
-                    table->setItem(i-1, 0, new QTableWidgetItem(QString::number(i)));
-                    colOffset = 1;
-                }
-                
-                for (size_t j = 1; j <= cols; ++j) {
-                    sol::object cellObj = row[j];
-                    QString cellText = formatValue(cellObj);
-                    
-                    QTableWidgetItem* item = new QTableWidgetItem(cellText);
-                    if (cellObj.get_type() == sol::type::number) {
-                        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-                    }
-                    table->setItem(i-1, j-1+colOffset, item);
-                }
-            }
-        }
-        
-        autoResizeColumns();
-    }
+	setInfo(QString("Matrix: %1 (%2×%3)").arg(matrixName).arg(rows).arg(cols));
+
+	// Set up headers - USE CUSTOM HEADERS IF AVAILABLE
+	QStringList headers;
+
+	// Only add "Row" column if we DON'T have custom row labels AND user wants indices shown
+	bool hasCustomRowLabels = (!customRowLabels.isEmpty() && customRowLabels.size() >= rows);
+	bool showRowColumn = !hasCustomRowLabels && showIndicesCheck->isChecked();
+
+	if (showRowColumn) {
+	    headers << "Row";
+	}
+
+	// Use custom column headers if available, otherwise default
+	if (!customHeaders.isEmpty() && customHeaders.size() >= cols) {
+	    for (size_t j = 0; j < cols; ++j) {
+		headers << customHeaders[j];
+	    }
+	} else {
+	    for (size_t j = 1; j <= cols; ++j) {
+		headers << QString("Col %1").arg(j);
+	    }
+	}
+
+	table->setColumnCount(headers.size());
+	table->setHorizontalHeaderLabels(headers);
+	table->setRowCount(rows);
+
+	// USE CUSTOM ROW LABELS IF AVAILABLE
+	if (hasCustomRowLabels) {
+	    table->setVerticalHeaderLabels(customRowLabels);
+	}
+
+	// Fill data
+	for (size_t i = 1; i <= rows; ++i) {
+	    sol::object rowObj = luaTable[i];
+	    if (rowObj.get_type() == sol::type::table) {
+		sol::table row = rowObj.as<sol::table>();
+
+		int colOffset = 0;
+		if (showRowColumn) {
+		    table->setItem(i-1, 0, new QTableWidgetItem(QString::number(i)));
+		    colOffset = 1;
+		}
+
+		for (size_t j = 1; j <= cols; ++j) {
+		    sol::object cellObj = row[j];
+		    QString cellText = formatValue(cellObj);
+
+		    QTableWidgetItem* item = new QTableWidgetItem(cellText);
+		    if (cellObj.get_type() == sol::type::number) {
+			item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+		    }
+		    table->setItem(i-1, j-1+colOffset, item);
+		}
+	    }
+	}
+
+	autoResizeColumns();
+    }  
     
     void displayArrayTable(const sol::table& luaTable, const QString& arrayName)
     {
@@ -561,44 +611,50 @@ public slots:
     }
     
     void saveAsCSV() {
-        QString fileName = QFileDialog::getSaveFileName(this, 
-            "Save Data", 
-            "data_export.csv",
-            "CSV Files (*.csv)");
-            
-        if (!fileName.isEmpty()) {
-            QFile file(fileName);
-            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                QTextStream out(&file);
-                
-                // Headers
-                QStringList headers;
-                for (int col = 0; col < table->columnCount(); ++col) {
-                    headers << table->horizontalHeaderItem(col)->text();
-                }
-                out << headers.join(",") << "\n";
-                
-                // Data (only visible rows)
-                for (int row = 0; row < table->rowCount(); ++row) {
-                    if (!table->isRowHidden(row)) {
-                        QStringList rowData;
-                        for (int col = 0; col < table->columnCount(); ++col) {
-                            QTableWidgetItem* item = table->item(row, col);
-                            QString text = item ? item->text() : "";
-                            if (text.contains(",") || text.contains("\"")) {
-                                text = "\"" + text.replace("\"", "\"\"") + "\"";
-                            }
-                            rowData << text;
-                        }
-                        out << rowData.join(",") << "\n";
-                    }
-                }
-                
-                QMessageBox::information(this, "Saved", "Data saved to " + fileName);
-            }
-        }
+	// Enhanced CSV export with labels
+	QString fileName = QFileDialog::getSaveFileName(this, "Save as CSV", "", "CSV Files (*.csv)");
+	if (fileName.isEmpty()) return;
+
+	QFile file(fileName);
+	if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+	    QTextStream out(&file);
+
+	    // Write metadata header
+	    if (!matrixTitle.isEmpty()) {
+		out << "# " << matrixTitle << "\n";
+	    }
+	    if (!matrixDescription.isEmpty()) {
+		out << "# " << matrixDescription << "\n";
+	    }
+	    out << "# Generated: " << QDateTime::currentDateTime().toString() << "\n\n";
+
+	    // Write column headers (with custom labels if available)
+	    if (!customHeaders.isEmpty()) {
+		out << "Row Label,";
+		for (int i = 0; i < customHeaders.size(); ++i) {
+		    out << customHeaders[i];
+		    if (i < customHeaders.size() - 1) out << ",";
+		}
+		out << "\n";
+	    }
+
+	    // Write data rows with custom row labels
+	    for (int row = 0; row < table->rowCount(); ++row) {
+		if (!customRowLabels.isEmpty() && row < customRowLabels.size()) {
+		    out << customRowLabels[row] << ",";
+		}
+
+		for (int col = 0; col < table->columnCount(); ++col) {
+		    QTableWidgetItem* item = table->item(row, col);
+		    if (item) {
+			out << item->text();
+		    }
+		    if (col < table->columnCount() - 1) out << ",";
+		}
+		out << "\n";
+	    }
+	}
     }
-    
     void clearTable() {
         table->setRowCount(0);
         table->setColumnCount(0);

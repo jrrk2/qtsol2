@@ -6,10 +6,7 @@
 #include "LuaWindowFactory.hpp"
 #include "LuaChartWidget.hpp"
 #include "LuaMatrix.hpp"
-#include "AcceleratedMatrix.hpp"
 #include "GenericDataTableWidget.hpp"
-#include <sol/sol.hpp>
-#include <sol/types.hpp>
 
 // ConsoleLineEdit implementation
 ConsoleLineEdit::ConsoleLineEdit(QWidget* parent) 
@@ -677,6 +674,20 @@ void Sol2QtMainWindow::setupControlPanel()
 }
 */
 
+sol::table Sol2QtMainWindow::convertMatrixToTable(const AcceleratedMatrix& matrix) {
+    sol::table matrixTable = lua->create_table();
+    
+    for (size_t i = 0; i < matrix.getRows(); ++i) {
+        sol::table row = lua->create_table();
+        for (size_t j = 0; j < matrix.getCols(); ++j) {
+            row[j + 1] = matrix.get(i, j);  // Lua 1-based indexing
+        }
+        matrixTable[i + 1] = row;
+    }
+    
+    return matrixTable;
+}
+
 // Enhanced initializeSol2() method with script loading support
 
 void Sol2QtMainWindow::initializeSol2() 
@@ -988,8 +999,43 @@ void Sol2QtMainWindow::initializeSol2()
         return m;
     });
     
-    // Remove the problematic std::vector<double> binding and replace with these helper functions:
-    
+    // Add this to your Lua bindings
+    lua->set_function("show_labeled_matrix", [this](
+	const AcceleratedMatrix& matrix, 
+	const std::string& title,
+	const sol::optional<sol::table>& row_labels,
+	const sol::optional<sol::table>& col_labels
+    ) {
+	GenericDataTableWidget* table = new GenericDataTableWidget(
+	    QString::fromStdString("Labeled Matrix: " + title)
+	);
+	table->setLuaState(lua);
+
+	// Set custom headers if provided
+	if (col_labels) {
+	    QStringList headers;
+	    for (const auto& pair : *col_labels) {
+		headers << QString::fromStdString(pair.second.as<std::string>());
+	    }
+	    table->setCustomHeaders(headers);
+	}
+
+	// Set custom row labels if provided
+	if (row_labels) {
+	    QStringList rowLabels;
+	    for (const auto& pair : *row_labels) {
+		rowLabels << QString::fromStdString(pair.second.as<std::string>());
+	    }
+	    table->setCustomRowLabels(rowLabels);
+	}
+
+	// Convert and display matrix data
+	sol::table matrixTable = convertMatrixToTable(matrix);
+	table->displayData(matrixTable, QString::fromStdString(title));
+	table->show();
+
+	return table;
+    });    
     // Vector creation functions
     lua->set_function("create_vector", [](size_t size) {
         return std::vector<double>(size, 0.0);

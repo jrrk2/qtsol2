@@ -31,6 +31,9 @@
 #include <QUrl>
 #include <vector>
 #include <algorithm>
+#include <sol/sol.hpp>
+#include <sol/types.hpp>
+#include "AcceleratedMatrix.hpp"
 
 // Forward declarations
 class LuaWindowFactory;
@@ -99,7 +102,7 @@ private:
     void navigateHistory(int direction);
     void updateRecentFiles(const QString& filePath);
     void updateRecentFilesMenu();
-
+    sol::table convertMatrixToTable(const AcceleratedMatrix& matrix);
     // UI Components
     QTextEdit* scriptEditor;
     QTextEdit* outputDisplay;
