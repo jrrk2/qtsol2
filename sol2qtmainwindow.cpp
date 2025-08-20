@@ -37,6 +37,16 @@ Sol2QtMainWindow::Sol2QtMainWindow(QWidget *parent)
 {
     setupUI();
     initializeSol2();
+    // Load initial script examples info
+    appendToOutput("=== Sol2 + Qt6 Script Loading Ready ===");
+    appendToOutput("Create these example files to test script loading:");
+    appendToOutput("1. simple_calculator.lua - Basic calculator");
+    appendToOutput("2. data_manager.lua - Data management tool");
+    appendToOutput("3. script_loader.lua - Script loading utility");
+    appendToOutput("4. multi_script_demo.lua - Multi-script coordinator");
+    appendToOutput("");
+    appendToOutput("Or drag & drop any .lua file onto this window!");
+
 }
 
 Sol2QtMainWindow::~Sol2QtMainWindow() 
@@ -256,10 +266,88 @@ void Sol2QtMainWindow::appendToOutput(const std::string& text)
     outputDisplay->append(QString::fromStdString(text));
 }
 
+// Additional methods for sol2qtmainwindow.cpp - Script Loading Implementation
+
+// Add these methods to your Sol2QtMainWindow class implementation:
+
+void Sol2QtMainWindow::setupMenuBar() 
+{
+    // File Menu
+    fileMenu = menuBar()->addMenu("&File");
+    
+    newAction = new QAction("&New Script", this);
+    newAction->setShortcut(QKeySequence::New);
+    newAction->setStatusTip("Create a new Lua script");
+    connect(newAction, &QAction::triggered, this, &Sol2QtMainWindow::newScript);
+    fileMenu->addAction(newAction);
+    
+    openAction = new QAction("&Open Script...", this);
+    openAction->setShortcut(QKeySequence::Open);
+    openAction->setStatusTip("Open an existing Lua script");
+    connect(openAction, &QAction::triggered, this, &Sol2QtMainWindow::openScript);
+    fileMenu->addAction(openAction);
+    
+    fileMenu->addSeparator();
+    
+    saveAction = new QAction("&Save Script", this);
+    saveAction->setShortcut(QKeySequence::Save);
+    saveAction->setStatusTip("Save the current script");
+    connect(saveAction, &QAction::triggered, this, &Sol2QtMainWindow::saveScript);
+    fileMenu->addAction(saveAction);
+    
+    saveAsAction = new QAction("Save Script &As...", this);
+    saveAsAction->setShortcut(QKeySequence::SaveAs);
+    saveAsAction->setStatusTip("Save the script with a new name");
+    connect(saveAsAction, &QAction::triggered, this, &Sol2QtMainWindow::saveScriptAs);
+    fileMenu->addAction(saveAsAction);
+    
+    fileMenu->addSeparator();
+    
+    // Recent Files submenu
+    recentFilesMenu = fileMenu->addMenu("Recent Scripts");
+    updateRecentFilesMenu();
+    
+    fileMenu->addSeparator();
+    
+    exitAction = new QAction("E&xit", this);
+    exitAction->setShortcut(QKeySequence::Quit);
+    exitAction->setStatusTip("Exit the application");
+    connect(exitAction, &QAction::triggered, this, &QWidget::close);
+    fileMenu->addAction(exitAction);
+    
+    // Script Menu
+    scriptMenu = menuBar()->addMenu("&Script");
+    
+    QAction* runAction = new QAction("&Run Script", this);
+    runAction->setShortcut(QKeySequence("F5"));
+    runAction->setStatusTip("Execute the current script");
+    connect(runAction, &QAction::triggered, this, &Sol2QtMainWindow::runScript);
+    scriptMenu->addAction(runAction);
+    
+    QAction* clearOutputAction = new QAction("&Clear Output", this);
+    clearOutputAction->setShortcut(QKeySequence("Ctrl+L"));
+    clearOutputAction->setStatusTip("Clear the output window");
+    connect(clearOutputAction, &QAction::triggered, this, &Sol2QtMainWindow::clearOutput);
+    scriptMenu->addAction(clearOutputAction);
+    
+    scriptMenu->addSeparator();
+    
+    QAction* loadExampleAction = new QAction("Load &Example", this);
+    loadExampleAction->setStatusTip("Load an example script");
+    connect(loadExampleAction, &QAction::triggered, this, &Sol2QtMainWindow::loadExample);
+    scriptMenu->addAction(loadExampleAction);
+}
+
 void Sol2QtMainWindow::setupUI() 
 {
-    setWindowTitle("Sol2 + Qt6 Lua Integration");
-    setMinimumSize(1000, 700);
+    setWindowTitle("Sol2 + Qt6 Lua Integration - Script Editor");
+    setMinimumSize(1200, 800);
+    
+    // Enable drag and drop
+    setAcceptDrops(true);
+    
+    // Setup menu bar first
+    setupMenuBar();
     
     QWidget* centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
@@ -285,17 +373,28 @@ void Sol2QtMainWindow::setupUI()
     scriptEditor->setPlainText("-- Sol2 + Qt6 script\nprint(\"Hello from Sol2!\")\napp_widget:setStatusString(\"Sol2 is working!\")\nreturn \"Success!\"\n");
     editorLayout->addWidget(scriptEditor);
     
-    // Button layout
+    // Enhanced button layout with file operations
     QHBoxLayout* buttonLayout = new QHBoxLayout();
-    runButton = new QPushButton("Run Sol2 Script");
+    
+    openScriptButton = new QPushButton("Open Script");
+    openScriptButton->setStyleSheet("QPushButton { background-color: #FF9800; color: white; font-weight: bold; padding: 8px; }");
+    connect(openScriptButton, &QPushButton::clicked, this, &Sol2QtMainWindow::openScript);
+    
+    saveScriptButton = new QPushButton("Save Script");
+    saveScriptButton->setStyleSheet("QPushButton { background-color: #9C27B0; color: white; font-weight: bold; padding: 8px; }");
+    connect(saveScriptButton, &QPushButton::clicked, this, &Sol2QtMainWindow::saveScript);
+    
+    runButton = new QPushButton("Run Script (F5)");
     runButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; padding: 8px; }");
     
-    loadExampleButton = new QPushButton("Load Advanced Example");
+    loadExampleButton = new QPushButton("Load Example");
     loadExampleButton->setStyleSheet("QPushButton { background-color: #2196F3; color: white; padding: 8px; }");
     
     clearButton = new QPushButton("Clear Output");
     clearButton->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px; }");
     
+    buttonLayout->addWidget(openScriptButton);
+    buttonLayout->addWidget(saveScriptButton);
     buttonLayout->addWidget(runButton);
     buttonLayout->addWidget(loadExampleButton);
     buttonLayout->addWidget(clearButton);
@@ -304,7 +403,7 @@ void Sol2QtMainWindow::setupUI()
     editorLayout->addLayout(buttonLayout);
     splitter->addWidget(editorWidget);
     
-    // Output section
+    // Output section (rest remains the same as before)
     QWidget* outputWidget = new QWidget();
     QVBoxLayout* outputLayout = new QVBoxLayout(outputWidget);
     
@@ -327,7 +426,7 @@ void Sol2QtMainWindow::setupUI()
     consoleInput = new ConsoleLineEdit(this);
     consoleInput->setMainWindow(this);
     consoleInput->setFont(QFont("Consolas", 11));
-    consoleInput->setPlaceholderText("Enter Lua command (try: math.sqrt(16), widget:getSliderValue(), x = 42)");
+    consoleInput->setPlaceholderText("Enter Lua command or 'dofile(\"script.lua\")' to load file");
     consoleInput->setStyleSheet("border: 2px solid #2196F3; padding: 5px; border-radius: 3px;");
     
     executeLineButton = new QPushButton("Execute");
@@ -358,6 +457,187 @@ void Sol2QtMainWindow::setupUI()
     
     // Set focus to console input for immediate typing
     consoleInput->setFocus();
+}
+
+// File operations implementation
+void Sol2QtMainWindow::newScript() 
+{
+    scriptEditor->clear();
+    scriptEditor->setPlainText("-- New Lua Script\nprint(\"Hello from new script!\")\n");
+    currentScriptPath.clear();
+    setWindowTitle("Sol2 + Qt6 Lua Integration - Script Editor [New Script]");
+    appendToOutput("New script created");
+}
+
+void Sol2QtMainWindow::openScript() 
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        "Open Lua Script",
+        "",
+        "Lua Scripts (*.lua);;Text Files (*.txt);;All Files (*.*)"
+    );
+    
+    if (!filePath.isEmpty()) {
+        loadScriptFromFile(filePath);
+    }
+}
+
+void Sol2QtMainWindow::saveScript() 
+{
+    if (currentScriptPath.isEmpty()) {
+        saveScriptAs();
+    } else {
+        QFile file(currentScriptPath);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+            out << scriptEditor->toPlainText();
+            appendToOutput("Script saved: " + currentScriptPath.toStdString());
+        } else {
+            QMessageBox::warning(this, "Error", "Could not save file: " + currentScriptPath);
+        }
+    }
+}
+
+void Sol2QtMainWindow::saveScriptAs() 
+{
+    QString filePath = QFileDialog::getSaveFileName(
+        this,
+        "Save Lua Script",
+        "",
+        "Lua Scripts (*.lua);;Text Files (*.txt);;All Files (*.*)"
+    );
+    
+    if (!filePath.isEmpty()) {
+        currentScriptPath = filePath;
+        saveScript();
+        updateRecentFiles(filePath);
+        setWindowTitle("Sol2 + Qt6 Lua Integration - Script Editor [" + 
+                      QFileInfo(filePath).fileName() + "]");
+    }
+}
+
+bool Sol2QtMainWindow::loadScriptFromFile(const QString& filePath) 
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Error", "Could not open file: " + filePath);
+        return false;
+    }
+    
+    QTextStream in(&file);
+    QString content = in.readAll();
+    
+    scriptEditor->setPlainText(content);
+    currentScriptPath = filePath;
+    updateRecentFiles(filePath);
+    
+    setWindowTitle("Sol2 + Qt6 Lua Integration - Script Editor [" + 
+                  QFileInfo(filePath).fileName() + "]");
+    
+    appendToOutput("Script loaded: " + filePath.toStdString());
+    appendToOutput("Lines: " + std::to_string(content.split('\n').count()));
+    
+    return true;
+}
+
+bool Sol2QtMainWindow::executeScript(const QString& script) 
+{
+    if (script.isEmpty()) {
+        appendToOutput("Error: Empty script");
+        return false;
+    }
+    
+    try {
+        auto result = lua->script(script.toStdString());
+        
+        if (result.valid()) {
+            sol::object obj = result;
+            if (!obj.is<sol::lua_nil_t>()) {
+                if (obj.is<std::string>()) {
+                    appendToOutput("Script returned: " + obj.as<std::string>());
+                } else if (obj.is<double>()) {
+                    appendToOutput("Script returned: " + std::to_string(obj.as<double>()));
+                } else if (obj.is<bool>()) {
+                    appendToOutput("Script returned: " + std::string(obj.as<bool>() ? "true" : "false"));
+                }
+            }
+        }
+        
+        appendToOutput("Script executed successfully");
+        return true;
+        
+    } catch (const sol::error& e) {
+        appendToOutput("Lua Error: " + std::string(e.what()));
+        return false;
+    }
+}
+
+void Sol2QtMainWindow::updateRecentFiles(const QString& filePath) 
+{
+    recentFiles.removeAll(filePath);
+    recentFiles.prepend(filePath);
+    
+    while (recentFiles.size() > MaxRecentFiles) {
+        recentFiles.removeLast();
+    }
+    
+    updateRecentFilesMenu();
+}
+
+void Sol2QtMainWindow::updateRecentFilesMenu() 
+{
+    recentFilesMenu->clear();
+    
+    for (int i = 0; i < recentFiles.size(); ++i) {
+        const QString& filePath = recentFiles[i];
+        QAction* action = new QAction(QString("&%1 %2").arg(i + 1).arg(QFileInfo(filePath).fileName()), this);
+        action->setStatusTip(filePath);
+        action->setData(filePath);
+        connect(action, &QAction::triggered, this, &Sol2QtMainWindow::recentFileTriggered);
+        recentFilesMenu->addAction(action);
+    }
+    
+    if (recentFiles.isEmpty()) {
+        QAction* noFilesAction = new QAction("No recent files", this);
+        noFilesAction->setEnabled(false);
+        recentFilesMenu->addAction(noFilesAction);
+    }
+}
+
+void Sol2QtMainWindow::recentFileTriggered() 
+{
+    QAction* action = qobject_cast<QAction*>(sender());
+    if (action) {
+        QString filePath = action->data().toString();
+        loadScriptFromFile(filePath);
+    }
+}
+
+// Drag and drop support
+void Sol2QtMainWindow::dragEnterEvent(QDragEnterEvent* event) 
+{
+    if (event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (urls.size() == 1) {
+            QString filePath = urls.first().toLocalFile();
+            if (filePath.endsWith(".lua") || filePath.endsWith(".txt")) {
+                event->acceptProposedAction();
+                return;
+            }
+        }
+    }
+    event->ignore();
+}
+
+void Sol2QtMainWindow::dropEvent(QDropEvent* event) 
+{
+    QList<QUrl> urls = event->mimeData()->urls();
+    if (!urls.isEmpty()) {
+        QString filePath = urls.first().toLocalFile();
+        loadScriptFromFile(filePath);
+        event->acceptProposedAction();
+    }
 }
 
 void Sol2QtMainWindow::setupControlPanel() 
@@ -391,6 +671,9 @@ void Sol2QtMainWindow::setupControlPanel()
                 outputDisplay->append(QString("Slider value: %1").arg(value));
             });
 }
+// Enhanced initializeSol2() method for sol2qtmainwindow.cpp
+
+// Enhanced initializeSol2() method with script loading support
 
 void Sol2QtMainWindow::initializeSol2() 
 {
@@ -398,7 +681,8 @@ void Sol2QtMainWindow::initializeSol2()
     lua = new sol::state();
     
     // Open standard Lua libraries
-    lua->open_libraries(sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table);
+    lua->open_libraries(sol::lib::base, sol::lib::math, sol::lib::string, 
+                       sol::lib::table, sol::lib::io, sol::lib::os);
     
     // Redirect Lua print to Qt output
     lua->set_function("print", [this](sol::variadic_args va) {
@@ -409,6 +693,121 @@ void Sol2QtMainWindow::initializeSol2()
             output += str;
         }
         outputDisplay->append(QString::fromStdString(output));
+    });
+    
+    // Enhanced dofile function with error handling and output
+    lua->set_function("dofile", [this](const std::string& filename) -> sol::object {
+        try {
+            appendToOutput("Loading script: " + filename);
+            
+            QFile file(QString::fromStdString(filename));
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                throw std::runtime_error("Cannot open file: " + filename);
+            }
+            
+            QTextStream in(&file);
+            QString content = in.readAll();
+            
+            appendToOutput("Executing script (" + std::to_string(content.length()) + " chars)");
+            
+            auto result = lua->script(content.toStdString());
+            
+            if (result.valid()) {
+                appendToOutput("Script executed successfully: " + filename);
+                return result.get<sol::object>();
+            } else {
+                throw std::runtime_error("Script execution failed");
+            }
+            
+        } catch (const std::exception& e) {
+            appendToOutput("Error in dofile: " + std::string(e.what()));
+            throw;
+        }
+    });
+    
+    // Load script from string function
+    lua->set_function("loadstring", [this](const std::string& script) -> sol::object {
+        try {
+            appendToOutput("Executing inline script...");
+            auto result = lua->script(script);
+            if (result.valid()) {
+                appendToOutput("Inline script executed successfully");
+                return result.get<sol::object>();
+            } else {
+                throw std::runtime_error("Inline script execution failed");
+            }
+        } catch (const std::exception& e) {
+            appendToOutput("Error in loadstring: " + std::string(e.what()));
+            throw;
+        }
+    });
+    
+    // File utility functions for Lua
+    lua->set_function("file_exists", [](const std::string& filename) -> bool {
+        QFile file(QString::fromStdString(filename));
+        return file.exists();
+    });
+    
+    lua->set_function("read_file", [this](const std::string& filename) -> std::string {
+        QFile file(QString::fromStdString(filename));
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            throw std::runtime_error("Cannot read file: " + filename);
+        }
+        QTextStream in(&file);
+        return in.readAll().toStdString();
+    });
+    
+    lua->set_function("write_file", [this](const std::string& filename, const std::string& content) -> bool {
+        QFile file(QString::fromStdString(filename));
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            appendToOutput("Error: Cannot write to file: " + filename);
+            return false;
+        }
+        QTextStream out(&file);
+        out << QString::fromStdString(content);
+        appendToOutput("File written: " + filename);
+        return true;
+    });
+    
+    // Directory listing function
+    lua->set_function("list_files", [this](const std::string& directory, const std::string& filter) -> std::vector<std::string> {
+        QDir dir(QString::fromStdString(directory));
+        QStringList nameFilters;
+        if (!filter.empty()) {
+            nameFilters << QString::fromStdString(filter);
+        } else {
+            nameFilters << "*";
+        }
+        
+        QStringList files = dir.entryList(nameFilters, QDir::Files);
+        std::vector<std::string> result;
+        
+        for (const QString& file : files) {
+            result.push_back(file.toStdString());
+        }
+        
+        return result;
+    });
+    
+    // App control functions
+    lua->set_function("load_script_to_editor", [this](const std::string& filename) {
+        loadScriptFromFile(QString::fromStdString(filename));
+    });
+    
+    lua->set_function("get_editor_content", [this]() -> std::string {
+        return scriptEditor->toPlainText().toStdString();
+    });
+    
+    lua->set_function("set_editor_content", [this](const std::string& content) {
+        scriptEditor->setPlainText(QString::fromStdString(content));
+    });
+    
+    lua->set_function("append_to_editor", [this](const std::string& content) {
+        scriptEditor->append(QString::fromStdString(content));
+    });
+    
+    lua->set_function("clear_output", [this]() {
+        outputDisplay->clear();
     });
     
     // Bind our custom widget class to Lua
@@ -424,25 +823,82 @@ void Sol2QtMainWindow::initializeSol2()
     
     // Bind main window methods
     lua->new_usertype<Sol2QtMainWindow>("MainWindow",
-        "appendToOutput", &Sol2QtMainWindow::appendToOutput
+        "appendToOutput", &Sol2QtMainWindow::appendToOutput,
+        "loadScriptFromFile", [this](const std::string& path) {
+            return loadScriptFromFile(QString::fromStdString(path));
+        },
+        "executeScript", [this](const std::string& script) {
+            return executeScript(QString::fromStdString(script));
+        }
     );
     
-    // Make objects available to Lua
-    (*lua)["app_widget"] = controlWidget;
-
-    // Create window factory
-    windowFactory = new LuaWindowFactory(this);
-
-    // Bind LuaWindow class
+    // Enhanced LuaWindow class binding (same as before)
     lua->new_usertype<LuaWindow>("LuaWindow",
-        "addLabel", &LuaWindow::addLabel,
-        "addButton", &LuaWindow::addButton,
-        "addTextEdit", &LuaWindow::addTextEdit,
-        "addSlider", &LuaWindow::addSlider,
+        "addLabel", sol::overload(
+            [](LuaWindow* window, const std::string& text) {
+                window->addLabel(text);
+            },
+            [](LuaWindow* window, const std::string& text, const std::string& name) {
+                window->addLabel(text, name);
+            }
+        ),
+        "addButton", sol::overload(
+            [](LuaWindow* window, const std::string& text) {
+                window->addButton(text);
+            },
+            [](LuaWindow* window, const std::string& text, const std::string& name) {
+                window->addButton(text, name);
+            }
+        ),
+        "addTextEdit", sol::overload(
+            [](LuaWindow* window) {
+                window->addTextEdit();
+            },
+            [](LuaWindow* window, const std::string& placeholder) {
+                window->addTextEdit(placeholder);
+            },
+            [](LuaWindow* window, const std::string& placeholder, const std::string& name) {
+                window->addTextEdit(placeholder, name);
+            }
+        ),
+        "addSlider", sol::overload(
+            [](LuaWindow* window) {
+                window->addSlider();
+            },
+            [](LuaWindow* window, int min, int max, int value) {
+                window->addSlider(min, max, value);
+            },
+            [](LuaWindow* window, int min, int max, int value, const std::string& name) {
+                window->addSlider(min, max, value, name);
+            }
+        ),
+        "addLineEdit", sol::overload(
+            [](LuaWindow* window) {
+                window->addLineEdit();
+            },
+            [](LuaWindow* window, const std::string& placeholder) {
+                window->addLineEdit(placeholder);
+            },
+            [](LuaWindow* window, const std::string& placeholder, const std::string& name) {
+                window->addLineEdit(placeholder, name);
+            }
+        ),
+        "setOnButtonClick", &LuaWindow::setOnButtonClick,
+        "setOnSliderChange", &LuaWindow::setOnSliderChange,
+        "setOnWindowClose", &LuaWindow::setOnWindowClose,
+        "setOnWindowShow", &LuaWindow::setOnWindowShow,
+        "setOnTextChange", &LuaWindow::setOnTextChange,
+        "getWidgetText", &LuaWindow::getWidgetText,
+        "setWidgetText", &LuaWindow::setWidgetText,
+        "getSliderValue", &LuaWindow::getSliderValue,
+        "setSliderValue", &LuaWindow::setSliderValue,
         "show", &LuaWindow::show,
         "setBackgroundColor", &LuaWindow::setBackgroundColor,
         "close", &QWidget::close
     );
+
+    // Create window factory with Lua state
+    windowFactory = new LuaWindowFactory(this, lua);
 
     // Bind window factory
     lua->new_usertype<LuaWindowFactory>("WindowFactory",
@@ -458,21 +914,36 @@ void Sol2QtMainWindow::initializeSol2()
         "closeAllWindows", &LuaWindowFactory::closeAllWindows
     );
 
-    // Make factory available to Lua
+    // Make objects available to Lua
+    (*lua)["app_widget"] = controlWidget;
     (*lua)["window_factory"] = windowFactory;
     (*lua)["main_window"] = this;
     
-    outputDisplay->append("Sol2 Lua integration initialized!");
-    outputDisplay->append("Available objects: app_widget, main_window");
-    outputDisplay->append("Sol2 provides type-safe C++/Lua binding");
+    outputDisplay->append("Sol2 Lua integration initialized with script loading!");
+    outputDisplay->append("Available objects: app_widget, main_window, window_factory");
+    outputDisplay->append("");
+    outputDisplay->append("=== Script Loading Methods ===");
+    outputDisplay->append("1. File Menu: File → Open Script");
+    outputDisplay->append("2. Drag & Drop: Drop .lua files onto the window");
+    outputDisplay->append("3. Console: dofile('script.lua')");
+    outputDisplay->append("4. Console: loadstring('print(\"hello\")')");
+    outputDisplay->append("");
+    outputDisplay->append("=== File Functions Available in Lua ===");
+    outputDisplay->append("  dofile('filename.lua') - Execute Lua file");
+    outputDisplay->append("  loadstring('lua code') - Execute Lua string");
+    outputDisplay->append("  file_exists('filename') - Check if file exists");
+    outputDisplay->append("  read_file('filename') - Read file content");
+    outputDisplay->append("  write_file('filename', 'content') - Write to file");
+    outputDisplay->append("  list_files('directory', '*.lua') - List files");
+    outputDisplay->append("");
+    outputDisplay->append("=== Editor Control Functions ===");
+    outputDisplay->append("  load_script_to_editor('filename.lua')");
+    outputDisplay->append("  get_editor_content() - Get current script");
+    outputDisplay->append("  set_editor_content('new content')");
+    outputDisplay->append("  append_to_editor('additional content')");
+    outputDisplay->append("  clear_output() - Clear this output window");
     outputDisplay->append("");
     outputDisplay->append("=== Interactive Console Ready ===");
-    outputDisplay->append("Try these commands:");
-    outputDisplay->append("  math.sqrt(16)");
-    outputDisplay->append("  x = 42");
-    outputDisplay->append("  x * 2");
-    outputDisplay->append("  app_widget:getSliderValue()");
-    outputDisplay->append("  app_widget:setProgress(75)");
+    outputDisplay->append("Try: dofile('my_script.lua') or math.sqrt(16)");
     outputDisplay->append("Use ↑/↓ for command history\n");
-
 }

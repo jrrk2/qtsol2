@@ -26,6 +26,10 @@ target_include_directories(Sol2QtApp PRIVATE
     /opt/homebrew/include                      # Lua headers via Homebrew
 )
 
+target_compile_options(Sol2QtApp PRIVATE
+    -g
+    )
+    
 target_link_libraries(Sol2QtApp PRIVATE
     Qt6::Core 
     Qt6::Widgets 

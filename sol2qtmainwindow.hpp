@@ -1,4 +1,5 @@
-// sol2qtmainwindow.hpp
+// Enhanced sol2qtmainwindow.hpp with script loading capabilities
+
 #ifndef SOL2QTMAINWINDOW_HPP
 #define SOL2QTMAINWINDOW_HPP
 
@@ -19,12 +20,20 @@
 #include <QGroupBox>
 #include <QKeyEvent>
 #include <QStringList>
+#include <QFileDialog>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QTextStream>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
 #include <vector>
 #include <algorithm>
 
-// Add forward declaration
-class LuaWindowFactory;
 // Forward declarations
+class LuaWindowFactory;
 class LuaControlledWidget;
 
 namespace sol {
@@ -45,7 +54,6 @@ protected:
 
 private:
     Sol2QtMainWindow* mainWindow;
-  LuaWindowFactory* windowFactory;
 };
 
 class Sol2QtMainWindow : public QMainWindow
@@ -60,18 +68,37 @@ public:
     void onConsoleKeyPress(QKeyEvent* event);
     void appendToOutput(const std::string& text);
 
+    // Script loading methods
+    bool loadScriptFromFile(const QString& filePath);
+    bool executeScript(const QString& script);
+    
+protected:
+    // Drag and drop support
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+
 private slots:
     void runScript();
     void executeConsoleLine();
     void clearOutput();
     void loadExample();
     void onControlWidgetSignal(const QString& text);
+    
+    // File operations
+    void openScript();
+    void saveScript();
+    void saveScriptAs();
+    void newScript();
+    void recentFileTriggered();
 
 private:
     void setupUI();
+    void setupMenuBar();
     void setupControlPanel();
     void initializeSol2();
     void navigateHistory(int direction);
+    void updateRecentFiles(const QString& filePath);
+    void updateRecentFilesMenu();
 
     // UI Components
     QTextEdit* scriptEditor;
@@ -81,15 +108,33 @@ private:
     QPushButton* clearButton;
     QPushButton* loadExampleButton;
     QPushButton* executeLineButton;
+    QPushButton* openScriptButton;
+    QPushButton* saveScriptButton;
     QWidget* controlPanel;
+    
+    // Menu components
+    QMenu* fileMenu;
+    QMenu* scriptMenu;
+    QMenu* recentFilesMenu;
+    QAction* newAction;
+    QAction* openAction;
+    QAction* saveAction;
+    QAction* saveAsAction;
+    QAction* exitAction;
     
     // Lua and Qt integration
     sol::state* lua;
     LuaControlledWidget* controlWidget;
-    LuaWindowFactory* windowFactory;    
+    LuaWindowFactory* windowFactory;
+    
     // Console functionality
     QStringList commandHistory;
     int historyIndex;
+    
+    // File management
+    QString currentScriptPath;
+    QStringList recentFiles;
+    static const int MaxRecentFiles = 10;
 };
 
 #endif // SOL2QTMAINWINDOW_HPP
