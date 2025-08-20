@@ -4,7 +4,7 @@ project(Sol2QtApp)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Charts)
 
 # Find Lua
 find_package(PkgConfig REQUIRED)
@@ -17,6 +17,7 @@ qt6_add_executable(Sol2QtApp
 	sol2qtmainwindow.cpp
 	LuaControlledWidget.hpp
 	LuaWindowFactory.hpp
+        LuaChartWidget.hpp        # New chart widget
 	sol2qtmainwindow.hpp
 )
 
@@ -33,6 +34,7 @@ target_compile_options(Sol2QtApp PRIVATE
 target_link_libraries(Sol2QtApp PRIVATE
     Qt6::Core 
     Qt6::Widgets 
+    Qt6::Charts 
     ${LUA_LIBRARY}
 )
 

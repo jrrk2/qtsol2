@@ -4,6 +4,7 @@
 #include "sol2qtmainwindow.hpp"
 #include "LuaControlledWidget.hpp"
 #include "LuaWindowFactory.hpp"
+#include "LuaChartWidget.hpp"
 #include <sol/sol.hpp>
 #include <sol/types.hpp>
 
@@ -913,6 +914,29 @@ void Sol2QtMainWindow::initializeSol2()
         "getWindowCount", &LuaWindowFactory::getWindowCount,
         "closeAllWindows", &LuaWindowFactory::closeAllWindows
     );
+
+    // Bind chart widget
+    lua->new_usertype<LuaChartWidget>("ChartWidget",
+	"setFrequency", &LuaChartWidget::setFrequency,
+	"setAmplitude", &LuaChartWidget::setAmplitude,
+	"setPhase", &LuaChartWidget::setPhase,
+	"getFrequency", &LuaChartWidget::getFrequency,
+	"getAmplitude", &LuaChartWidget::getAmplitude,
+	"getPhase", &LuaChartWidget::getPhase,
+	"addPoint", &LuaChartWidget::addPoint,
+	"clearSeries", &LuaChartWidget::clearSeries,
+	"plotFunction", &LuaChartWidget::plotFunction,
+	"setTitle", &LuaChartWidget::setTitle,
+	"setAxisLabels", &LuaChartWidget::setAxisLabels
+    );
+
+    // Add chart creation to window factory
+    lua->set_function("create_chart_window", [this](const std::string& title) {
+	LuaChartWidget* chartWidget = new LuaChartWidget();
+	chartWidget->setWindowTitle(QString::fromStdString(title));
+	chartWidget->show();
+	return chartWidget;
+    });
 
     // Make objects available to Lua
     (*lua)["app_widget"] = controlWidget;
