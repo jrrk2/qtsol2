@@ -104,7 +104,8 @@ private:
     void updateRecentFilesMenu();
     sol::table convertMatrixToTable(const AcceleratedMatrix& matrix);
   void addWindowMenuBindings(sol::state* lua, LuaWindowFactory* factory);
-    // UI Components
+  void setupImageDisplayBindings();
+  // UI Components
     QTextEdit* scriptEditor;
     QTextEdit* outputDisplay;
     ConsoleLineEdit* consoleInput;

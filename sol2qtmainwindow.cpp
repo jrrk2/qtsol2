@@ -7,6 +7,7 @@
 #include "LuaChartWidget.hpp"
 #include "LuaMatrix.hpp"
 #include "GenericDataTableWidget.hpp"
+#include "ImageDisplayWidget.hpp"
 
 int LuaWindow::windowCounter = 0;
 
@@ -717,7 +718,7 @@ void Sol2QtMainWindow::addWindowMenuBindings(sol::state* lua, LuaWindowFactory* 
     lua->set_function("list_all_windows", [factory]() {
         auto titles = factory->getWindowTitles();
         for (size_t i = 0; i < titles.size(); ++i) {
-            std::cout << "Window " << (i+1) << ": " << titles[i] << std::endl;
+	  qDebug() << "Window " << (i+1) << ": " << titles[i];
         }
         return titles.size();
     });
@@ -731,6 +732,198 @@ void Sol2QtMainWindow::addWindowMenuBindings(sol::state* lua, LuaWindowFactory* 
             return true;
         }
         return false;
+    });
+}
+
+// Add these bindings to your Sol2QtMainWindow::initializeSol2() method
+// Place this after your existing ImageReader bindings
+
+void Sol2QtMainWindow::setupImageDisplayBindings() {
+    // Bind StarOverlay structure
+    lua->new_usertype<StarOverlay>("StarOverlay",
+        "center", &StarOverlay::center,
+        "radius", &StarOverlay::radius,
+        "flux", &StarOverlay::flux,
+        "color", &StarOverlay::color,
+        "visible", &StarOverlay::visible
+    );
+    
+    // Bind ImageDisplayWidget class
+    lua->new_usertype<ImageDisplayWidget>("ImageDisplayWidget",
+        // Constructor
+        sol::constructors<ImageDisplayWidget(QWidget*)>(),
+        
+        // Image data operations
+        "setImageData", &ImageDisplayWidget::setImageData,
+        "clearImage", &ImageDisplayWidget::clearImage,
+        
+        // Zoom controls
+        "setZoomFactor", &ImageDisplayWidget::setZoomFactor,
+        "getZoomFactor", &ImageDisplayWidget::zoomFactor,
+        "zoomIn", [](ImageDisplayWidget& widget) {
+            widget.setZoomFactor(widget.zoomFactor() * 1.5);
+        },
+        "zoomOut", [](ImageDisplayWidget& widget) {
+            widget.setZoomFactor(widget.zoomFactor() / 1.5);
+        },
+        "zoomToFit", [](ImageDisplayWidget& widget) {
+            // This would need to be made public or accessible
+            QMetaObject::invokeMethod(&widget, "onZoomFitClicked");
+        },
+        "zoom100", [](ImageDisplayWidget& widget) {
+            widget.setZoomFactor(1.0);
+        },
+        
+        // Star overlay controls  
+        "setStarOverlay", [](ImageDisplayWidget& widget, const sol::table& centers, const sol::table& radii) {
+            QVector<QPoint> qCenters;
+            QVector<float> qRadii;
+            
+            // Convert Lua tables to Qt vectors
+            for (const auto& pair : centers) {
+                if (pair.second.is<sol::table>()) {
+                    sol::table point = pair.second.as<sol::table>();
+                    int x = point.get_or(1, 0);
+                    int y = point.get_or(2, 0);
+                    qCenters.append(QPoint(x, y));
+                }
+            }
+            
+            for (const auto& pair : radii) {
+                if (pair.second.is<double>()) {
+                    qRadii.append(static_cast<float>(pair.second.as<double>()));
+                }
+            }
+            
+            widget.setStarOverlay(qCenters, qRadii);
+        },
+        
+        "clearStarOverlay", &ImageDisplayWidget::clearStarOverlay,
+        "setStarOverlayVisible", &ImageDisplayWidget::setStarOverlayVisible,
+        "isStarOverlayVisible", &ImageDisplayWidget::isStarOverlayVisible,
+        
+        // Catalog overlay controls
+        "setCatalogOverlayVisible", &ImageDisplayWidget::setCatalogOverlayVisible,
+        "setValidationOverlayVisible", &ImageDisplayWidget::setValidationOverlayVisible,
+        "isCatalogOverlayVisible", &ImageDisplayWidget::isCatalogOverlayVisible,
+        "isValidationOverlayVisible", &ImageDisplayWidget::isValidationOverlayVisible,
+        
+        // Legend controls
+        "setMagnitudeLegendVisible", &ImageDisplayWidget::setMagnitudeLegendVisible,
+        "isMagnitudeLegendVisible", &ImageDisplayWidget::isMagnitudeLegendVisible,
+        
+        // Display in window
+        "show", &ImageDisplayWidget::show,
+        "hide", &ImageDisplayWidget::hide,
+        "setWindowTitle", [](ImageDisplayWidget& widget, const std::string& title) {
+            widget.setWindowTitle(QString::fromStdString(title));
+        }
+    );
+    
+    // Enhanced image display functions for Lua
+    lua->set_function("create_image_display", [this](const std::string& title) -> ImageDisplayWidget* {
+        ImageDisplayWidget* display = new ImageDisplayWidget();
+        display->setWindowTitle(QString::fromStdString(title));
+        display->setAttribute(Qt::WA_DeleteOnClose);
+        display->resize(800, 600);
+        
+        // Connect signals to Lua callbacks if needed
+        connect(display, &ImageDisplayWidget::imageClicked, 
+                [this, display](int x, int y, float value) {
+            // Call Lua callback if it exists
+            if (lua->get<sol::optional<sol::function>>("on_image_clicked")) {
+                auto callback = (*lua)["on_image_clicked"];
+                try {
+                    callback(x, y, value);
+                } catch (const sol::error& e) {
+                    appendToOutput("Error in image click callback: " + std::string(e.what()));
+                }
+            } else {
+                appendToOutput("Image clicked: (" + std::to_string(x) + ", " + std::to_string(y) + 
+                             ") value=" + std::to_string(value));
+            }
+        });
+        
+        return display;
+    });
+    
+    // Convenience function to display an image
+    lua->set_function("display_image", [this](const ImageData& imgData, const std::string& title) -> ImageDisplayWidget* {
+        ImageDisplayWidget* display = new ImageDisplayWidget();
+        display->setWindowTitle(QString::fromStdString(title));
+        display->setAttribute(Qt::WA_DeleteOnClose);
+        display->resize(800, 600);
+        
+        display->setImageData(imgData);
+        display->show();
+        
+        appendToOutput("Image display window created: " + title);
+        return display;
+    });
+    
+    // Function to load and display image in one step
+    lua->set_function("load_and_display_image", [this](const std::string& filepath) -> sol::object {
+        // Load the image
+        ImageReader reader;
+        if (reader.readFile(QString(filepath.c_str()))) {
+	  const ImageData& imageData = reader.imageData();
+            ImageDisplayWidget* display = new ImageDisplayWidget();
+            display->setWindowTitle(QString::fromStdString("Image: " + filepath));
+            display->setAttribute(Qt::WA_DeleteOnClose);
+            display->resize(800, 600);
+            
+            display->setImageData(imageData);
+            display->show();
+            
+            // Return both the display widget and image data
+            sol::table resultTable = lua->create_table();
+            resultTable["success"] = true;
+            resultTable["display"] = display;
+            resultTable["data"] = imageData;
+            
+            appendToOutput("Image loaded and displayed: " + filepath);
+            return resultTable;
+        } else {
+            sol::table resultTable = lua->create_table();
+            resultTable["success"] = false;
+            resultTable["error"] = reader.lastError();
+            return resultTable;
+        }
+    });
+    
+    // Batch display function
+    lua->set_function("display_image_grid", [this](const sol::table& imageList, int columns) {
+        // This would create a grid layout of multiple ImageDisplayWidgets
+        // Implementation depends on your specific needs
+        appendToOutput("Grid display function - to be implemented");
+    });
+    
+    // Star detection integration
+    lua->set_function("detect_and_display_stars", [this](ImageDisplayWidget* display) {
+        if (!display) {
+            appendToOutput("Error: No display widget provided");
+            return false;
+        }
+        
+        // This would integrate with your star detection algorithms
+        // For now, create mock star data
+        QVector<QPoint> centers;
+        QVector<float> radii;
+        
+        // Add some example stars (in a real implementation, this would call your star detection)
+        centers.append(QPoint(100, 150));
+        centers.append(QPoint(250, 200));
+        centers.append(QPoint(400, 300));
+        
+        radii.append(5.0f);
+        radii.append(8.0f);
+        radii.append(6.0f);
+        
+        display->setStarOverlay(centers, radii);
+        display->setStarOverlayVisible(true);
+        
+        appendToOutput("Mock stars detected and displayed");
+        return true;
     });
 }
 
@@ -1990,6 +2183,8 @@ void Sol2QtMainWindow::initializeSol2()
         table->show();
         return table;
     });
+
+    setupImageDisplayBindings();
     
     // Make objects available to Lua
     (*lua)["window_factory"] = windowFactory;

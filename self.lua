@@ -1,0 +1,6 @@
+w=window_factory:createWindow("Self",600,600)
+w:addTextEdit("","e")
+w:addButton("Reload","r")
+w:setOnButtonClick(function(b) write_file("self.lua",w:getWidgetText("e")) w:close() loadstring(w:getWidgetText("e"))() end)
+w:setWidgetText("e",read_file("self.lua"))
+w:show()
