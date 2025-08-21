@@ -376,90 +376,60 @@ public:
         updateWindowMenu();
     }
 
-    // In LuaWindowFactory::createWindow() method - FIXED cleanup connections
-
     LuaWindow* createWindow(const std::string& title, int width = 400, int height = 300) {
-	LuaWindow* window = new LuaWindow(title, width, height, luaState);
-	windows.push_back(window);
-
-	// Connect default signals to main window output (for backwards compatibility)
-	connect(window, &LuaWindow::buttonClicked, this, [this](const QString& text) {
-	    if (mainWindow) {
-		mainWindow->appendToOutput("Button clicked: " + text.toStdString());
-	    }
-	});
-
-	connect(window, &LuaWindow::sliderChanged, this, [this](int value) {
-	    if (mainWindow) {
-		mainWindow->appendToOutput("Slider changed: " + std::to_string(value));
-	    }
-	});
-
-	// FIXED: Use QObject::destroyed signal instead of custom windowClosed
-	// This is more reliable as it's emitted when the object is actually being destroyed
-	connect(window, &QObject::destroyed, this, [this, window]() {
-	    this->removeWindow(window);
-	    if (mainWindow) {
-		mainWindow->appendToOutput("Window destroyed: " + window->getWindowTitle());
-	    }
-	});
-
-	// Keep the existing windowClosed connection as backup
-	connect(window, &LuaWindow::windowClosed, this, [this, window]() {
-	    this->removeWindow(window);
-	    if (mainWindow) {
-		mainWindow->appendToOutput("Window closed: " + window->getWindowTitle());
-	    }
-	});
-
-	connect(window, &LuaWindow::windowShown, this, [this, window]() {
-	    updateWindowActionState(window);
-	});
-
-	connect(window, &LuaWindow::windowHidden, this, [this, window]() {
-	    updateWindowActionState(window);
-	});
-
-	// Add to menu
-	addWindowToMenu(window);
-	updateWindowMenu();
-
-	return window;
+        LuaWindow* window = new LuaWindow(title, width, height, luaState);
+        windows.push_back(window);
+        
+        // Connect default signals to main window output (for backwards compatibility)
+        connect(window, &LuaWindow::buttonClicked, this, [this](const QString& text) {
+            if (mainWindow) {
+                mainWindow->appendToOutput("Button clicked: " + text.toStdString());
+            }
+        });
+        
+        connect(window, &LuaWindow::sliderChanged, this, [this](int value) {
+            if (mainWindow) {
+                mainWindow->appendToOutput("Slider changed: " + std::to_string(value));
+            }
+        });
+        
+        // FIXED: Properly clean up window from both vector AND menu when closed
+        connect(window, &LuaWindow::windowClosed, this, [this, window]() {
+            this->removeWindow(window);  // Use helper method for complete cleanup
+            if (mainWindow) {
+                mainWindow->appendToOutput("Window closed: " + window->getWindowTitle());
+            }
+        });
+        
+        connect(window, &LuaWindow::windowShown, this, [this, window]() {
+            updateWindowActionState(window);
+        });
+        
+        connect(window, &LuaWindow::windowHidden, this, [this, window]() {
+            updateWindowActionState(window);
+        });
+        
+        // Add to menu
+        addWindowToMenu(window);
+        updateWindowMenu();
+        
+        return window;
     }
 
-    // And make removeWindowFromMenu more defensive:
-    void removeWindowFromMenu(LuaWindow* window) {
-	if (!window || !windowMenu) return;  // Safety checks
-
-	auto it = windowActions.find(window);
-	if (it != windowActions.end()) {
-	    windowMenu->removeAction(it->second);
-	    if (windowActionGroup) {
-		windowActionGroup->removeAction(it->second);
-	    }
-	    it->second->deleteLater();
-	    windowActions.erase(it);
-
-	    // Reassign keyboard shortcuts for remaining windows
-	    updateKeyboardShortcuts();
-	}
-    }
 private:
-    // Also update the removeWindow method to be more defensive:
+    // NEW: Helper method for complete window removal
     void removeWindow(LuaWindow* window) {
-	if (!window) return;  // Safety check
-
-	// Remove from vector
-	auto it = std::find(windows.begin(), windows.end(), window);
-	if (it != windows.end()) {
-	    windows.erase(it);
-	}
-
-	// Remove from menu
-	removeWindowFromMenu(window);
-
-	// Update menu display
-	updateWindowMenu();
+        // Remove from vector
+        auto it = std::find(windows.begin(), windows.end(), window);
+        if (it != windows.end()) {
+            windows.erase(it);
+        }
+        
+        // Remove from menu
+        removeWindowFromMenu(window);
+        
+        // Update menu display
+        updateWindowMenu();
     }
 
 public:
@@ -480,10 +450,12 @@ public:
         }
         
         connect(windowAction, &QAction::triggered, this, [this, window](bool checked) {
-            if (checked && !window->isVisible()) {
+            if (checked) {
+                // Always show, raise, and activate when selected from menu
                 window->show();
                 window->raise();
                 window->activateWindow();
+                window->setWindowState(window->windowState() & ~Qt::WindowMinimized);
             } else if (!checked && window->isVisible()) {
                 window->hide();
             }
@@ -493,7 +465,20 @@ public:
         windowActionGroup->addAction(windowAction);
         windowMenu->addAction(windowAction);
     }
-
+    
+    void removeWindowFromMenu(LuaWindow* window) {
+        auto it = windowActions.find(window);
+        if (it != windowActions.end()) {
+            windowMenu->removeAction(it->second);
+            windowActionGroup->removeAction(it->second);
+            it->second->deleteLater();
+            windowActions.erase(it);
+            
+            // Reassign keyboard shortcuts for remaining windows
+            updateKeyboardShortcuts();
+        }
+    }
+    
     // NEW: Update keyboard shortcuts when windows are removed
     void updateKeyboardShortcuts() {
         int shortcutIndex = 1;
