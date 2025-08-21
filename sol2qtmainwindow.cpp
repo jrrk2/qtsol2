@@ -8,6 +8,8 @@
 #include "LuaMatrix.hpp"
 #include "GenericDataTableWidget.hpp"
 
+int LuaWindow::windowCounter = 0;
+
 // ConsoleLineEdit implementation
 ConsoleLineEdit::ConsoleLineEdit(QWidget* parent) 
     : QLineEdit(parent), mainWindow(nullptr) 
@@ -690,6 +692,48 @@ sol::table Sol2QtMainWindow::convertMatrixToTable(const AcceleratedMatrix& matri
 
 // Enhanced initializeSol2() method with script loading support
 
+void Sol2QtMainWindow::addWindowMenuBindings(sol::state* lua, LuaWindowFactory* factory) {
+    // Enhance existing WindowFactory binding
+    lua->new_usertype<LuaWindowFactory>("WindowFactory",
+        "createWindow", sol::overload(
+            [](LuaWindowFactory* factory, const std::string& title) {
+                return factory->createWindow(title);
+            },
+            [](LuaWindowFactory* factory, const std::string& title, int width, int height) {
+                return factory->createWindow(title, width, height);
+            }
+        ),
+        "getWindowCount", &LuaWindowFactory::getWindowCount,
+        "closeAllWindows", &LuaWindowFactory::closeAllWindows,
+        
+        // New menu-related functions
+        "showAllWindows", &LuaWindowFactory::showAllWindows,
+        "hideAllWindows", &LuaWindowFactory::hideAllWindows,
+        "getWindowTitles", &LuaWindowFactory::getWindowTitles,
+        "findWindowByTitle", &LuaWindowFactory::findWindowByTitle,
+        "findWindowById", &LuaWindowFactory::findWindowById
+    );
+    // Add window management functions
+    lua->set_function("list_all_windows", [factory]() {
+        auto titles = factory->getWindowTitles();
+        for (size_t i = 0; i < titles.size(); ++i) {
+            std::cout << "Window " << (i+1) << ": " << titles[i] << std::endl;
+        }
+        return titles.size();
+    });
+    
+    lua->set_function("focus_window", [factory](const std::string& title) {
+        LuaWindow* window = factory->findWindowByTitle(title);
+        if (window) {
+            window->show();
+            window->raise();
+            window->activateWindow();
+            return true;
+        }
+        return false;
+    });
+}
+
 void Sol2QtMainWindow::initializeSol2() 
 {
     // Create Sol2 state
@@ -915,6 +959,8 @@ void Sol2QtMainWindow::initializeSol2()
     // Create window factory with Lua state
     windowFactory = new LuaWindowFactory(this, lua);
 
+    windowFactory->setupWindowMenu();
+    
     // Bind window factory
     lua->new_usertype<LuaWindowFactory>("WindowFactory",
         "createWindow", sol::overload(
@@ -926,7 +972,13 @@ void Sol2QtMainWindow::initializeSol2()
             }
         ),
         "getWindowCount", &LuaWindowFactory::getWindowCount,
-        "closeAllWindows", &LuaWindowFactory::closeAllWindows
+	"closeAllWindows", &LuaWindowFactory::closeAllWindows,
+        "showAllWindows", &LuaWindowFactory::showAllWindows,
+        "hideAllWindows", &LuaWindowFactory::hideAllWindows,
+        "getWindowTitles", &LuaWindowFactory::getWindowTitles,
+        "findWindowByTitle", &LuaWindowFactory::findWindowByTitle,
+        "findWindowById", &LuaWindowFactory::findWindowById
+					
     );
 
     // Bind chart widget

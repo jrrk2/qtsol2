@@ -17,6 +17,11 @@
 #include <QKeyEvent>
 #include <QStringList>
 #include <QCloseEvent>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QActionGroup>
+
 #include <sol/sol.hpp>
 #include "sol2qtmainwindow.hpp"
 
@@ -39,17 +44,26 @@ private:
     // Widget tracking for callbacks
     std::map<QWidget*, std::string> widgetNames;
     std::map<std::string, QWidget*> namedWidgets;
+    static int windowCounter; // Static counter for unique IDs
+    int windowId;
+    std::string windowTitle;
 
 public:
     explicit LuaWindow(const std::string& title, int width = 400, int height = 300, 
                       sol::state* lua = nullptr, QWidget* parent = nullptr)
         : QWidget(parent), luaState(lua)
     {
+        windowId = ++windowCounter;
         setWindowTitle(QString::fromStdString(title));
         resize(width, height);
         layout = new QVBoxLayout(this);
         setAttribute(Qt::WA_DeleteOnClose);
     }
+
+    // Add getters for menu system
+    int getWindowId() const { return windowId; }
+    std::string getWindowTitle() const { return windowTitle; }
+    bool isVisible() const { return QWidget::isVisible(); }
 
     // Enhanced widget creation with optional names for callbacks
     void addLabel(const std::string& text, const std::string& name = "") {
@@ -293,6 +307,19 @@ signals:
     void buttonClicked(const QString& buttonText);
     void sliderChanged(int value);
     void windowClosed();
+    void windowShown();
+    void windowHidden();
+
+protected:
+    void showEvent(QShowEvent* event) override {
+        QWidget::showEvent(event);
+        emit windowShown();
+    }
+    
+    void hideEvent(QHideEvent* event) override {
+        QWidget::hideEvent(event);
+        emit windowHidden();
+    }
 };
 
 // Enhanced Window factory class
@@ -304,10 +331,49 @@ private:
     std::vector<LuaWindow*> windows;
     Sol2QtMainWindow* mainWindow;
     sol::state* luaState;
+    
+    // Menu system
+    QMenu* windowMenu;
+    QActionGroup* windowActionGroup;
+    QAction* noWindowsAction;
+    std::map<LuaWindow*, QAction*> windowActions;
 
 public:
     explicit LuaWindowFactory(Sol2QtMainWindow* parent = nullptr, sol::state* lua = nullptr) 
         : QObject(parent), mainWindow(parent), luaState(lua) {}
+
+    void setupWindowMenu() {
+        if (!mainWindow) return;
+        
+        // Create Window menu in main window's menu bar
+        QMenuBar* menuBar = mainWindow->menuBar();
+        windowMenu = menuBar->addMenu("&Windows");
+        
+        // Create action group for window management
+        windowActionGroup = new QActionGroup(this);
+        
+        // Add "No windows open" placeholder
+        noWindowsAction = windowMenu->addAction("No windows open");
+        noWindowsAction->setEnabled(false);
+        
+        windowMenu->addSeparator();
+        
+        // Add window management actions
+        QAction* closeAllAction = windowMenu->addAction("Close &All Windows");
+        closeAllAction->setShortcut(QKeySequence("Ctrl+Shift+W"));
+        connect(closeAllAction, &QAction::triggered, this, &LuaWindowFactory::closeAllWindows);
+        
+        QAction* showAllAction = windowMenu->addAction("&Show All Windows");
+        connect(showAllAction, &QAction::triggered, this, &LuaWindowFactory::showAllWindows);
+        
+        QAction* hideAllAction = windowMenu->addAction("&Hide All Windows");
+        connect(hideAllAction, &QAction::triggered, this, &LuaWindowFactory::hideAllWindows);
+        
+        windowMenu->addSeparator();
+        
+        // Add window count display
+        updateWindowMenu();
+    }
 
     LuaWindow* createWindow(const std::string& title, int width = 400, int height = 300) {
         LuaWindow* window = new LuaWindow(title, width, height, luaState);
@@ -332,12 +398,88 @@ public:
             if (it != windows.end()) {
                 windows.erase(it);
             }
+            updateWindowMenu();
             if (mainWindow) {
                 mainWindow->appendToOutput("Window closed");
             }
         });
         
-        return window;
+        connect(window, &LuaWindow::windowShown, this, [this, window]() {
+            updateWindowActionState(window);
+        });
+        
+        connect(window, &LuaWindow::windowHidden, this, [this, window]() {
+            updateWindowActionState(window);
+        });
+        
+        // Add to menu
+        addWindowToMenu(window);
+        updateWindowMenu();
+        
+       return window;
+    }
+
+   void addWindowToMenu(LuaWindow* window) {
+        if (!windowMenu) return;
+        
+        QString actionText = QString("Window %1: %2")
+            .arg(window->getWindowId())
+            .arg(QString::fromStdString(window->getWindowTitle()));
+            
+        QAction* windowAction = new QAction(actionText, this);
+        windowAction->setCheckable(true);
+        windowAction->setChecked(window->isVisible());
+        
+        // Add keyboard shortcut for first 9 windows
+        if (windowActions.size() < 9) {
+            windowAction->setShortcut(QKeySequence(QString("Ctrl+%1").arg(windowActions.size() + 1)));
+        }
+        
+        connect(windowAction, &QAction::triggered, this, [this, window](bool checked) {
+            if (checked && !window->isVisible()) {
+                window->show();
+                window->raise();
+                window->activateWindow();
+            } else if (!checked && window->isVisible()) {
+                window->hide();
+            }
+        });
+        
+        windowActions[window] = windowAction;
+        windowActionGroup->addAction(windowAction);
+        windowMenu->addAction(windowAction);
+    }
+    
+    void removeWindowFromMenu(LuaWindow* window) {
+        auto it = windowActions.find(window);
+        if (it != windowActions.end()) {
+            windowMenu->removeAction(it->second);
+            windowActionGroup->removeAction(it->second);
+            it->second->deleteLater();
+            windowActions.erase(it);
+        }
+    }
+
+    void updateWindowActionState(LuaWindow* window) {
+        auto it = windowActions.find(window);
+        if (it != windowActions.end()) {
+            it->second->setChecked(window->isVisible());
+        }
+    }
+    
+    void updateWindowMenu() {
+        if (!windowMenu) return;
+        
+        // Update "no windows" placeholder
+        bool hasWindows = !windows.empty();
+        noWindowsAction->setVisible(!hasWindows);
+        
+        // Update menu title with count
+        if (hasWindows) {
+            windowMenu->setTitle(QString("&Windows (%1)").arg(windows.size()));
+        } else {
+            windowMenu->setTitle("&Windows");
+        }
     }
 
     int getWindowCount() const {
@@ -351,5 +493,53 @@ public:
             }
         }
         windows.clear();
+        windowActions.clear();
+        updateWindowMenu();
     }
+    void showAllWindows() {
+        for (auto* window : windows) {
+            if (window) {
+                window->show();
+                updateWindowActionState(window);
+            }
+        }
+    }
+    
+    void hideAllWindows() {
+        for (auto* window : windows) {
+            if (window) {
+                window->hide();
+                updateWindowActionState(window);
+            }
+        }
+    }
+    std::vector<std::string> getWindowTitles() const {
+        std::vector<std::string> titles;
+        for (const auto* window : windows) {
+            if (window) {
+                titles.push_back(window->getWindowTitle());
+            }
+        }
+        return titles;
+    }
+    
+    // Find window by title or ID
+    LuaWindow* findWindowByTitle(const std::string& title) {
+        for (auto* window : windows) {
+            if (window && window->getWindowTitle() == title) {
+                return window;
+            }
+        }
+        return nullptr;
+    }
+    
+    LuaWindow* findWindowById(int id) {
+        for (auto* window : windows) {
+            if (window && window->getWindowId() == id) {
+                return window;
+            }
+        }
+        return nullptr;
+    }
+    
 };

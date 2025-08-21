@@ -103,6 +103,7 @@ private:
     void updateRecentFiles(const QString& filePath);
     void updateRecentFilesMenu();
     sol::table convertMatrixToTable(const AcceleratedMatrix& matrix);
+  void addWindowMenuBindings(sol::state* lua, LuaWindowFactory* factory);
     // UI Components
     QTextEdit* scriptEditor;
     QTextEdit* outputDisplay;
