@@ -1,4 +1,4 @@
-// Enhanced LuaWindowFactory.hpp with Lua event callback support
+// Enhanced LuaWindowFactory.hpp with proper window cleanup
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -54,6 +54,7 @@ public:
         : QWidget(parent), luaState(lua)
     {
         windowId = ++windowCounter;
+        windowTitle = title;  // Store the title
         setWindowTitle(QString::fromStdString(title));
         resize(width, height);
         layout = new QVBoxLayout(this);
@@ -322,7 +323,7 @@ protected:
     }
 };
 
-// Enhanced Window factory class
+// Enhanced Window factory class with FIXED cleanup
 class LuaWindowFactory : public QObject
 {
     Q_OBJECT
@@ -375,51 +376,94 @@ public:
         updateWindowMenu();
     }
 
+    // In LuaWindowFactory::createWindow() method - FIXED cleanup connections
+
     LuaWindow* createWindow(const std::string& title, int width = 400, int height = 300) {
-        LuaWindow* window = new LuaWindow(title, width, height, luaState);
-        windows.push_back(window);
-        
-        // Connect default signals to main window output (for backwards compatibility)
-        connect(window, &LuaWindow::buttonClicked, this, [this](const QString& text) {
-            if (mainWindow) {
-                mainWindow->appendToOutput("Button clicked: " + text.toStdString());
-            }
-        });
-        
-        connect(window, &LuaWindow::sliderChanged, this, [this](int value) {
-            if (mainWindow) {
-                mainWindow->appendToOutput("Slider changed: " + std::to_string(value));
-            }
-        });
-        
-        connect(window, &LuaWindow::windowClosed, this, [this, window]() {
-            // Remove from vector when closed
-            auto it = std::find(windows.begin(), windows.end(), window);
-            if (it != windows.end()) {
-                windows.erase(it);
-            }
-            updateWindowMenu();
-            if (mainWindow) {
-                mainWindow->appendToOutput("Window closed");
-            }
-        });
-        
-        connect(window, &LuaWindow::windowShown, this, [this, window]() {
-            updateWindowActionState(window);
-        });
-        
-        connect(window, &LuaWindow::windowHidden, this, [this, window]() {
-            updateWindowActionState(window);
-        });
-        
-        // Add to menu
-        addWindowToMenu(window);
-        updateWindowMenu();
-        
-       return window;
+	LuaWindow* window = new LuaWindow(title, width, height, luaState);
+	windows.push_back(window);
+
+	// Connect default signals to main window output (for backwards compatibility)
+	connect(window, &LuaWindow::buttonClicked, this, [this](const QString& text) {
+	    if (mainWindow) {
+		mainWindow->appendToOutput("Button clicked: " + text.toStdString());
+	    }
+	});
+
+	connect(window, &LuaWindow::sliderChanged, this, [this](int value) {
+	    if (mainWindow) {
+		mainWindow->appendToOutput("Slider changed: " + std::to_string(value));
+	    }
+	});
+
+	// FIXED: Use QObject::destroyed signal instead of custom windowClosed
+	// This is more reliable as it's emitted when the object is actually being destroyed
+	connect(window, &QObject::destroyed, this, [this, window]() {
+	    this->removeWindow(window);
+	    if (mainWindow) {
+		mainWindow->appendToOutput("Window destroyed: " + window->getWindowTitle());
+	    }
+	});
+
+	// Keep the existing windowClosed connection as backup
+	connect(window, &LuaWindow::windowClosed, this, [this, window]() {
+	    this->removeWindow(window);
+	    if (mainWindow) {
+		mainWindow->appendToOutput("Window closed: " + window->getWindowTitle());
+	    }
+	});
+
+	connect(window, &LuaWindow::windowShown, this, [this, window]() {
+	    updateWindowActionState(window);
+	});
+
+	connect(window, &LuaWindow::windowHidden, this, [this, window]() {
+	    updateWindowActionState(window);
+	});
+
+	// Add to menu
+	addWindowToMenu(window);
+	updateWindowMenu();
+
+	return window;
     }
 
-   void addWindowToMenu(LuaWindow* window) {
+    // And make removeWindowFromMenu more defensive:
+    void removeWindowFromMenu(LuaWindow* window) {
+	if (!window || !windowMenu) return;  // Safety checks
+
+	auto it = windowActions.find(window);
+	if (it != windowActions.end()) {
+	    windowMenu->removeAction(it->second);
+	    if (windowActionGroup) {
+		windowActionGroup->removeAction(it->second);
+	    }
+	    it->second->deleteLater();
+	    windowActions.erase(it);
+
+	    // Reassign keyboard shortcuts for remaining windows
+	    updateKeyboardShortcuts();
+	}
+    }
+private:
+    // Also update the removeWindow method to be more defensive:
+    void removeWindow(LuaWindow* window) {
+	if (!window) return;  // Safety check
+
+	// Remove from vector
+	auto it = std::find(windows.begin(), windows.end(), window);
+	if (it != windows.end()) {
+	    windows.erase(it);
+	}
+
+	// Remove from menu
+	removeWindowFromMenu(window);
+
+	// Update menu display
+	updateWindowMenu();
+    }
+
+public:
+    void addWindowToMenu(LuaWindow* window) {
         if (!windowMenu) return;
         
         QString actionText = QString("Window %1: %2")
@@ -449,14 +493,17 @@ public:
         windowActionGroup->addAction(windowAction);
         windowMenu->addAction(windowAction);
     }
-    
-    void removeWindowFromMenu(LuaWindow* window) {
-        auto it = windowActions.find(window);
-        if (it != windowActions.end()) {
-            windowMenu->removeAction(it->second);
-            windowActionGroup->removeAction(it->second);
-            it->second->deleteLater();
-            windowActions.erase(it);
+
+    // NEW: Update keyboard shortcuts when windows are removed
+    void updateKeyboardShortcuts() {
+        int shortcutIndex = 1;
+        for (auto& pair : windowActions) {
+            if (shortcutIndex <= 9) {
+                pair.second->setShortcut(QKeySequence(QString("Ctrl+%1").arg(shortcutIndex)));
+                shortcutIndex++;
+            } else {
+                pair.second->setShortcut(QKeySequence());  // Remove shortcut for windows beyond 9
+            }
         }
     }
 
@@ -487,15 +534,17 @@ public:
     }
 
     void closeAllWindows() {
-        for (auto* window : windows) {
+        // Create a copy of the vector to avoid iterator invalidation
+        auto windowsCopy = windows;
+        for (auto* window : windowsCopy) {
             if (window) {
-                window->close();
+                window->close();  // This will trigger the cleanup automatically
             }
         }
-        windows.clear();
-        windowActions.clear();
-        updateWindowMenu();
+        // Note: Individual windows will be removed by their close signals
+        // so we don't need to clear the vector manually here
     }
+    
     void showAllWindows() {
         for (auto* window : windows) {
             if (window) {
@@ -513,6 +562,7 @@ public:
             }
         }
     }
+    
     std::vector<std::string> getWindowTitles() const {
         std::vector<std::string> titles;
         for (const auto* window : windows) {
@@ -541,5 +591,4 @@ public:
         }
         return nullptr;
     }
-    
 };
