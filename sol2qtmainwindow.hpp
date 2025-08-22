@@ -106,6 +106,7 @@ private:
   void addWindowMenuBindings(sol::state* lua, LuaWindowFactory* factory);
   void setupImageDisplayBindings();
   void setupStarCatalogBindings();
+  void setupStarChartBindings();
   // UI Components
     QTextEdit* scriptEditor;
     QTextEdit* outputDisplay;

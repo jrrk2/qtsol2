@@ -1043,6 +1043,88 @@ void Sol2QtMainWindow::setupImageDisplayBindings() {
 
 }
 
+// Add this to Sol2QtMainWindow::initializeSol2() method
+// Place this after your existing chart widget bindings
+
+void Sol2QtMainWindow::setupStarChartBindings() {
+    // Bind StarChartWidget class
+    lua->new_usertype<StarChartWidget>("StarChartWidget",
+        // Constructor
+        sol::constructors<StarChartWidget(QWidget*)>(),
+        
+        // Core star data methods
+        "setStarData", [](StarChartWidget& widget, const QVector<CatalogStar>& stars) {
+            widget.setStarData(stars);
+        },
+        
+        // Plot configuration methods
+        "setPlotMode", &StarChartWidget::setPlotMode,
+        "setColorScheme", &StarChartWidget::setColorScheme,
+        "setShowLegend", &StarChartWidget::setShowLegend,
+        "setShowGrid", &StarChartWidget::setShowGrid,
+        "resetZoom", &StarChartWidget::resetZoom,
+        
+        // Widget methods from QWidget base class
+        "show", &QWidget::show,
+        "hide", &QWidget::hide,
+        "close", &QWidget::close,
+        "setWindowTitle", [](StarChartWidget& widget, const std::string& title) {
+            widget.setWindowTitle(QString::fromStdString(title));
+        },
+        "resize", [](StarChartWidget& widget, int width, int height) {
+            widget.resize(width, height);
+        },
+        "move", [](StarChartWidget& widget, int x, int y) {
+            widget.move(x, y);
+        },
+        
+        // Signal connections (using lambdas to handle signal connection)
+        "connectStarClicked", [this](StarChartWidget& widget, sol::function callback) {
+            QObject::connect(&widget, &StarChartWidget::starClicked, 
+                           [callback](const CatalogStar& star) {
+                               if (callback.valid()) {
+                                   try {
+                                       callback(star);
+                                   } catch (const sol::error& e) {
+                                       qDebug() << "Lua callback error:" << e.what();
+                                   }
+                               }
+                           });
+        },
+        
+        "connectStarHovered", [this](StarChartWidget& widget, sol::function callback) {
+            QObject::connect(&widget, &StarChartWidget::starHovered, 
+                           [callback](const CatalogStar& star) {
+                               if (callback.valid()) {
+                                   try {
+                                       callback(star);
+                                   } catch (const sol::error& e) {
+                                       qDebug() << "Lua callback error:" << e.what();
+                                   }
+                               }
+                           });
+        }
+    );
+    
+    // Add convenience function to create star chart
+    lua->set_function("create_star_chart", [this](const std::string& title) -> StarChartWidget* {
+        StarChartWidget* chart = new StarChartWidget();
+        chart->setWindowTitle(QString::fromStdString(title));
+        chart->setAttribute(Qt::WA_DeleteOnClose);
+        return chart;
+    });
+    
+    // Add convenience function to create star chart with data
+    lua->set_function("create_star_chart_with_data", [this](const QVector<CatalogStar>& stars, const std::string& title) -> StarChartWidget* {
+        StarChartWidget* chart = new StarChartWidget();
+        chart->setWindowTitle(QString::fromStdString(title));
+        chart->setStarData(stars);
+        chart->setAttribute(Qt::WA_DeleteOnClose);
+        chart->show();
+        return chart;
+    });
+}
+
 void Sol2QtMainWindow::initializeSol2() 
 {
     // Create Sol2 state
@@ -2301,7 +2383,8 @@ void Sol2QtMainWindow::initializeSol2()
     });
 
     setupImageDisplayBindings();
-    
+    setupStarChartBindings();
+        
     // Make objects available to Lua
     (*lua)["window_factory"] = windowFactory;
     (*lua)["main_window"] = this;
