@@ -105,6 +105,7 @@ private:
     sol::table convertMatrixToTable(const AcceleratedMatrix& matrix);
   void addWindowMenuBindings(sol::state* lua, LuaWindowFactory* factory);
   void setupImageDisplayBindings();
+  void setupStarCatalogBindings();
   // UI Components
     QTextEdit* scriptEditor;
     QTextEdit* outputDisplay;

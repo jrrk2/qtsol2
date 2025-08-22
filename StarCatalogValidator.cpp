@@ -1064,11 +1064,12 @@ void StarCatalogValidator::initializeGaiaDR3()
 // Update the main queryCatalog method to use Gaia
 void StarCatalogValidator::queryCatalog(double centerRA, double centerDec, double radiusDegrees)
 {
+  /*  
     if (!m_astrometricMetadata.IsValid()) {
         emit errorSignal("No valid WCS data available for catalog query");
         return;
     }
-    
+  */    
     // Try Gaia GDR3 first, fall back to network catalogs if needed
     queryGaiaDR3(centerRA, centerDec, radiusDegrees);
 }

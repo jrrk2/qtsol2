@@ -9,6 +9,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address") 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Find Qt6
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Charts)
@@ -206,6 +207,7 @@ set(PROJECT_INCLUDE_DIRS
 set(SOURCES
     BackgroundExtractionWidget.cpp
     BackgroundExtractor.cpp
+    ColorAnalysisDialog.cpp
     GaiaGDR3Catalog.cpp
     ImageDisplayWidget.cpp
     ImageReader.cpp
@@ -213,9 +215,12 @@ set(SOURCES
     main.cpp
     PCLMockAPI.cpp
     PCLThreadMock.cpp
+    RGBPhotometryAnalyzer.cpp
     sol2qtmainwindow.cpp
     StarCatalogValidator.cpp
     StarChartWidget.cpp
+    StarCorrelator.cpp
+    StarStatisticsChartDialog.cpp
     ${PCL_ROOT}/src/modules/file-formats/FITS/FITS.cpp
     ${PCL_ROOT}/src/modules/file-formats/TIFF/TIFF.cpp
     ${PCL_ROOT}/src/modules/file-formats/TIFF/TIFFFormat.cpp
@@ -229,6 +234,7 @@ set(SOURCES
 set(HEADERS
     AcceleratedMatrix.hpp
     BackgroundExtractionWidget.hpp
+    ColorAnalysisDialog.hpp
     GenericDataTableWidget.hpp
     ImageDisplayWidget.hpp
     ImageReader.hpp
@@ -239,9 +245,11 @@ set(HEADERS
     LuaWindowFactory.hpp
     PCLMockAPI.hpp
     PCLThreadMock.hpp
+    RGBPhotometryAnalyzer.hpp
     sol2qtmainwindow.hpp
     StarCatalogValidator.hpp
     StarChartWidget.hpp
+    StarStatisticsChartDialog.hpp
 )
 
 add_executable(Sol2QtApp ${SOURCES} ${HEADERS})
@@ -262,7 +270,6 @@ target_include_directories(Sol2QtApp PRIVATE
     /opt/homebrew/include
     ${CMAKE_SOURCE_DIR}/sol2/include  # Sol2 headers
     /opt/homebrew/Cellar/eigen/3.4.0_1/include/eigen3
-    /opt/homebrew/Cellar/qt/6.9.0/lib/QtNetwork.framework/Versions/A/Headers
 )
 
 set(ASTROMETRY_PREFIX /opt/homebrew) 

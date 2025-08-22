@@ -1,13 +1,16 @@
-// ============================================================================
-
-// sol2qtmainwindow.cpp
+#include <sol/sol.hpp>
 #include "sol2qtmainwindow.hpp"
+#include "StarCatalogValidator.hpp"
+#include "BrightStarDatabase.hpp"
 #include "LuaControlledWidget.hpp"
 #include "LuaWindowFactory.hpp"
 #include "LuaChartWidget.hpp"
 #include "LuaMatrix.hpp"
 #include "GenericDataTableWidget.hpp"
 #include "ImageDisplayWidget.hpp"
+#include "StarStatisticsChartDialog.hpp"
+#include "ImageReader.hpp"
+#include "StarChartWidget.hpp"
 
 int LuaWindow::windowCounter = 0;
 
@@ -925,6 +928,119 @@ void Sol2QtMainWindow::setupImageDisplayBindings() {
         appendToOutput("Mock stars detected and displayed");
         return true;
     });
+    // Bind CatalogStar structure
+    lua->new_usertype<CatalogStar>("CatalogStar",
+        sol::constructors<
+            CatalogStar(),
+            CatalogStar(const QString&, double, double, double)
+        >(),
+        "id", &CatalogStar::id,
+        "ra", &CatalogStar::ra,
+        "dec", &CatalogStar::dec,
+        "magnitude", &CatalogStar::magnitude,
+        "spectralType", &CatalogStar::spectralType,
+        "pixelPos", &CatalogStar::pixelPos,
+        "isValid", &CatalogStar::isValid,
+        
+        // Add enhanced photometry fields
+        "magBP", &CatalogStar::magBP,
+        "magRP", &CatalogStar::magRP,
+        "colorBP_RP", &CatalogStar::colorBP_RP,
+        "hasExtendedData", &CatalogStar::hasExtendedData,
+        
+        // Add helper methods for Lua
+        "setPixelPosition", [](CatalogStar& star, double x, double y) {
+            star.pixelPos = QPointF(x, y);
+            return 0; // Return value for void functions
+        },
+        "getX", [](const CatalogStar& star) -> double {
+            return star.pixelPos.x();
+        },
+        "getY", [](const CatalogStar& star) -> double {
+            return star.pixelPos.y();
+        },
+        "toString", [](const CatalogStar& star) -> std::string {
+            return QString("Star %1 (RA=%2, Dec=%3, Mag=%4, Type=%5)")
+                .arg(star.id)
+                .arg(star.ra)
+                .arg(star.dec)
+                .arg(star.magnitude)
+                .arg(star.spectralType).toStdString();
+        }
+    );
+#if 0    
+    // Bind AstrometricMetadata class
+    lua->new_usertype<pcl::AstrometricMetadata>("AstrometricMetadata",
+        sol::constructors<pcl::AstrometricMetadata()>(),
+        "IsValid", &pcl::AstrometricMetadata::IsValid,
+        "Width", &pcl::AstrometricMetadata::Width,
+        "Height", &pcl::AstrometricMetadata::Height
+						/*
+						  "RA", &pcl::AstrometricMetadata::RA,
+						  "Dec", &pcl::AstrometricMetadata::Dec,
+						  "FocalLength", &pcl::AstrometricMetadata::FocalLength,
+						  "PixelSize", &pcl::AstrometricMetadata::PixelSize
+						*/
+    );
+#endif        
+    // Bind StarCatalogValidator class - only include methods that exist in your class
+    lua->new_usertype<StarCatalogValidator>("StarCatalogValidator",
+        sol::constructors<
+            StarCatalogValidator(QObject*)
+        >(),
+        
+        // Only include methods that actually exist in your class
+        "getCatalogStars", &StarCatalogValidator::getCatalogStars,
+        
+        // QueryCatalog wrapper
+        "queryCatalog", sol::overload(
+            [](StarCatalogValidator& validator, double centerRA, double centerDec, double radius) {
+                validator.queryCatalog(centerRA, centerDec, radius);
+                return 0; // Return value for void functions
+            },
+            [](StarCatalogValidator& validator, double centerRA, double centerDec) {
+	      validator.queryCatalog(centerRA, centerDec, 1.0);
+                return 0; // Return value for void functions
+            }
+        ),
+        
+        // Coordinate conversion methods
+        "skyToPixel", &StarCatalogValidator::skyToPixel,
+        "pixelToSky", &StarCatalogValidator::pixelToSky,
+        
+        // Information methods
+        "showCatalogStats", &StarCatalogValidator::showCatalogStats,
+        "getWidth", &StarCatalogValidator::getWidth,
+        "getHeight", &StarCatalogValidator::getHeight,
+        "getPixScale", &StarCatalogValidator::getPixScale,
+        
+        // GetCenter wrapper
+        "getCenter", [this](StarCatalogValidator& validator) -> sol::table {
+            double ra = 0, dec = 0;
+            validator.getCenter(ra, dec);
+            
+            sol::table result = lua->create_table();
+            result["ra"] = ra;
+            result["dec"] = dec;
+            return result;
+        },
+        
+        // Helper methods for Lua
+        "createCatalogStar", [](StarCatalogValidator& validator, 
+                               const std::string& id, double ra, double dec, double magnitude) -> CatalogStar {
+            CatalogStar star(QString::fromStdString(id), ra, dec, magnitude);
+            star.pixelPos = validator.skyToPixel(ra, dec);
+            return star;
+        }
+    );
+
+    lua->set_function("queryCatalog", [](double ra, double dec, double radius, 
+                                        const pcl::AstrometricMetadata& metadata) -> QVector<CatalogStar> {
+        StarCatalogValidator validator(nullptr);
+        validator.queryCatalog(ra, dec, radius);
+        return validator.getCatalogStars();
+    });
+
 }
 
 void Sol2QtMainWindow::initializeSol2() 
