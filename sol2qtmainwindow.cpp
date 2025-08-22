@@ -13,6 +13,7 @@
 #include "StarChartWidget.hpp"
 
 int LuaWindow::windowCounter = 0;
+Sol2QtMainWindow* Sol2QtMainWindow::instance = nullptr;
 
 // ConsoleLineEdit implementation
 ConsoleLineEdit::ConsoleLineEdit(QWidget* parent) 
@@ -42,6 +43,7 @@ void ConsoleLineEdit::keyPressEvent(QKeyEvent* event)
 Sol2QtMainWindow::Sol2QtMainWindow(QWidget *parent) 
     : QMainWindow(parent), lua(nullptr), historyIndex(-1)
 {
+    instance = this;  // ADD: Set global instance
     setupUI();
     initializeSol2();
     // Load initial script examples info
@@ -61,7 +63,20 @@ Sol2QtMainWindow::~Sol2QtMainWindow()
   if (windowFactory) {
     windowFactory->closeAllWindows();
   }
+  if (instance == this) {
+    instance = nullptr;
+  }
   delete lua;
+}
+
+LuaWindowFactory* Sol2QtMainWindow::getGlobalWindowFactory()
+{
+    return instance ? instance->windowFactory : nullptr;
+}
+
+Sol2QtMainWindow* Sol2QtMainWindow::getInstance()
+{
+    return instance;
 }
 
 void Sol2QtMainWindow::onConsoleKeyPress(QKeyEvent* event) 

@@ -63,6 +63,9 @@ class Sol2QtMainWindow : public QMainWindow
 {
     Q_OBJECT
 
+private:
+    static Sol2QtMainWindow* instance;  // ADD: For global factory access
+  
 public:
     explicit Sol2QtMainWindow(QWidget *parent = nullptr);
     ~Sol2QtMainWindow();
@@ -74,6 +77,9 @@ public:
     // Script loading methods
     bool loadScriptFromFile(const QString& filePath);
     bool executeScript(const QString& script);
+    // ADD: Static method for global factory access
+    static LuaWindowFactory* getGlobalWindowFactory();
+    static Sol2QtMainWindow* getInstance();
     
 protected:
     // Drag and drop support

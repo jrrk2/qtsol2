@@ -213,6 +213,7 @@ set(SOURCES
     ImageReader.cpp
     ImageStatistics.cpp
     main.cpp
+    MenuIntegratedWidget.cpp
     PCLMockAPI.cpp
     PCLThreadMock.cpp
     RGBPhotometryAnalyzer.cpp
@@ -243,6 +244,7 @@ set(HEADERS
     LuaControlledWidget.hpp
     LuaMatrix.hpp
     LuaWindowFactory.hpp
+    MenuIntegratedWidget.hpp
     PCLMockAPI.hpp
     PCLThreadMock.hpp
     RGBPhotometryAnalyzer.hpp

@@ -338,6 +338,8 @@ private:
     QActionGroup* windowActionGroup;
     QAction* noWindowsAction;
     std::map<LuaWindow*, QAction*> windowActions;
+    std::vector<QWidget*> managedWidgets;
+    std::map<QWidget*, QAction*> widgetActions;
 
 public:
     explicit LuaWindowFactory(Sol2QtMainWindow* parent = nullptr, sol::state* lua = nullptr) 
@@ -415,6 +417,68 @@ public:
         
         return window;
     }
+    void registerWidget(QWidget* widget, const QString& title)
+      {
+    if (!widget || !windowMenu) return;
+    
+    managedWidgets.push_back(widget);
+    
+    QString actionText = QString("Chart: %1").arg(title);
+    QAction* widgetAction = new QAction(actionText, this);
+    widgetAction->setCheckable(true);
+    widgetAction->setChecked(widget->isVisible());
+    
+    // Connect menu action to widget visibility
+    connect(widgetAction, &QAction::triggered, this, [widget](bool checked) {
+        if (checked && !widget->isVisible()) {
+            widget->show();
+            widget->raise();
+            widget->activateWindow();
+            widget->setWindowState(widget->windowState() & ~Qt::WindowMinimized);
+        } else if (!checked && widget->isVisible()) {
+            widget->hide();
+        }
+    });
+    
+    // Connect widget destruction signal
+    connect(widget, &QWidget::destroyed, this, [this, widget]() {
+        unregisterWidget(widget);
+    });
+    
+    widgetActions[widget] = widgetAction;
+    windowActionGroup->addAction(widgetAction);
+    windowMenu->addAction(widgetAction);
+    
+    updateWindowMenu();
+}
+    void unregisterWidget(QWidget* widget)
+{
+    // Remove from vector
+    auto it = std::find(managedWidgets.begin(), managedWidgets.end(), widget);
+    if (it != managedWidgets.end()) {
+        managedWidgets.erase(it);
+    }
+    
+    // Remove from menu
+    auto actionIt = widgetActions.find(widget);
+    if (actionIt != widgetActions.end()) {
+        windowMenu->removeAction(actionIt->second);
+        windowActionGroup->removeAction(actionIt->second);
+        actionIt->second->deleteLater();
+        widgetActions.erase(actionIt);
+    }
+    
+    updateWindowMenu();
+}
+    void updateWidgetTitle(QWidget* widget, const QString& newTitle)
+      {
+    auto actionIt = widgetActions.find(widget);
+    if (actionIt != widgetActions.end()) {
+        QString actionText = QString("Chart: %1").arg(newTitle);
+        actionIt->second->setText(actionText);
+    }
+}
+
 
 private:
     // NEW: Helper method for complete window removal
@@ -501,17 +565,15 @@ public:
     
     void updateWindowMenu() {
         if (!windowMenu) return;
-        
-        // Update "no windows" placeholder
-        bool hasWindows = !windows.empty();
-        noWindowsAction->setVisible(!hasWindows);
-        
-        // Update menu title with count
-        if (hasWindows) {
-            windowMenu->setTitle(QString("&Windows (%1)").arg(windows.size()));
-        } else {
-            windowMenu->setTitle("&Windows");
-        }
+	int totalWindows = windows.size() + managedWidgets.size();
+	bool hasWindows = totalWindows > 0;
+	noWindowsAction->setVisible(!hasWindows);
+    
+	if (hasWindows) {
+	  windowMenu->setTitle(QString("&Windows (%1)").arg(totalWindows));
+	} else {
+	  windowMenu->setTitle("&Windows");
+	}
     }
 
     int getWindowCount() const {
@@ -528,6 +590,14 @@ public:
         }
         // Note: Individual windows will be removed by their close signals
         // so we don't need to clear the vector manually here
+	// Close managed widgets
+	auto widgetsCopy = managedWidgets;
+	for (auto* widget : widgetsCopy) {
+	  if (widget) {
+            widget->close();
+        }
+    }
+
     }
     
     void showAllWindows() {
@@ -546,6 +616,16 @@ public:
                 updateWindowActionState(window);
             }
         }
+	for (auto* widget : managedWidgets) {
+	  if (widget) {
+            widget->hide();
+            auto actionIt = widgetActions.find(widget);
+            if (actionIt != widgetActions.end()) {
+	      actionIt->second->setChecked(false);
+            }
+	  }
+	}
+
     }
     
     std::vector<std::string> getWindowTitles() const {

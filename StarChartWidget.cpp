@@ -1,9 +1,11 @@
-#include "StarChartWidget.hpp"
-
 // StarChartWidget Implementation
 
+#include "StarChartWidget.hpp"
+
+int StarChartWidget::starChartCounter = 0;
+
 StarChartWidget::StarChartWidget(QWidget* parent)
-    : QWidget(parent)
+    : MenuIntegratedWidget(parent)
     , m_plotMode(MagnitudeVsSpectralType)
     , m_colorScheme(SpectralTypeColors)
     , m_showLegend(true)

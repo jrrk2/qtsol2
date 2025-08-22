@@ -8,12 +8,16 @@
 #include <QtMath>
 #include <QTimer>
 
+#include "MenuIntegratedWidget.hpp"
 #include "StarCatalogValidator.hpp"
 
 // Custom widget for drawing the star chart
-class StarChartWidget : public QWidget
+class StarChartWidget : public MenuIntegratedWidget
 {
     Q_OBJECT
+
+private:
+    static int starChartCounter;  // ADD: Counter for auto-titles
 
 public:
     explicit StarChartWidget(QWidget* parent = nullptr);
