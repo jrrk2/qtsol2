@@ -18,7 +18,7 @@ Sol2QtMainWindow* Sol2QtMainWindow::instance = nullptr;
 
 // ConsoleLineEdit implementation
 ConsoleLineEdit::ConsoleLineEdit(QWidget* parent) 
-    : QLineEdit(parent), mainWindow(nullptr) 
+    : QLineEdit(parent), mainWindow(nullptr)
 {
 }
 
@@ -985,7 +985,7 @@ void Sol2QtMainWindow::setupImageDisplayBindings() {
         }
     );
 #if 1
-#include "AstrometricMetadata_bindings.h"    
+#include "bindings.h"    
 #endif        
     // Bind StarCatalogValidator class - only include methods that exist in your class
     lua->new_usertype<StarCatalogValidator>("StarCatalogValidator",

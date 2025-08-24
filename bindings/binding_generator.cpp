@@ -230,21 +230,91 @@ public:
         output << "// Generated Sol2 Lua bindings\n";
         output << "// Total classes: " << classes.size() << "\n\n";
         
-        // Generate bindings for each class
+        int boundClasses = 0;
+        
+        // Generate bindings for each class - but be selective
         for (const auto& [name, classInfo] : classes) {
+            // Only bind classes that make sense for Lua scripting
+            bool shouldBind = false;
+            
             if (classInfo.isPCLClass && classInfo.isMetadata && name.find("AstrometricMetadata") != std::string::npos) {
+                // Always bind AstrometricMetadata
+                shouldBind = true;
                 output << generateAstrometricMetadataBinding(classInfo) << "\n\n";
-            } else if (classInfo.isStruct && !classInfo.fields.empty()) {
+                boundClasses++;
+            } else if (classInfo.isStruct && !classInfo.fields.empty() && isBindableStruct(classInfo)) {
+                // Only bind structs with useful public fields
+                shouldBind = true;
                 output << generateStructBinding(classInfo) << "\n\n";
-            } else if (!classInfo.isStruct && (!classInfo.methods.empty() || !classInfo.constructors.empty())) {
+                boundClasses++;
+            } else if (!classInfo.isStruct && isBindableClass(classInfo)) {
+                // Only bind classes with useful public methods
+                shouldBind = true;
                 output << generateClassBinding(classInfo) << "\n\n";
+                boundClasses++;
+            }
+            
+            if (verbose && shouldBind) {
+                std::cout << "Generated binding for: " << name << std::endl;
             }
         }
+        
+        output << "// Generated bindings for " << boundClasses << " classes\n";
         
         return output.str();
     }
     
 private:
+    bool isBindableStruct(const ClassInfo& classInfo) const {
+        // Only bind structs that are useful for Lua scripting
+        if (classInfo.name == "DescriptionItems") return true;
+        if (classInfo.name.find("Options") != std::string::npos && !classInfo.fields.empty()) return true;
+        
+        // Skip internal/nested structs
+        if (classInfo.name.find("::") != std::string::npos) return false;
+        if (classInfo.name.find("Data") != std::string::npos) return false;
+        if (classInfo.name.find("Thread") != std::string::npos) return false;
+        
+        return classInfo.fields.size() >= 2; // Must have some useful fields
+    }
+    
+    bool isBindableClass(const ClassInfo& classInfo) const {
+        // Skip classes with no useful methods
+        if (classInfo.methods.empty() && classInfo.constructors.empty()) return false;
+        
+        // Skip iterator types
+        if (classInfo.name.find("iterator") != std::string::npos) return false;
+        
+        // Skip thread types
+        if (classInfo.name.find("Thread") != std::string::npos) return false;
+        
+        // Skip nested types that aren't useful for scripting
+        if (classInfo.name.find("::") != std::string::npos) {
+            // Allow some useful nested types
+            if (classInfo.name.find("DescriptionItems") != std::string::npos) return true;
+            return false;
+        }
+        
+        // Skip internal/low-level classes
+        std::vector<std::string> skipPatterns = {
+            "PixelTraits", "Allocator", "AutoReentrancy", "AutoLock",
+            "ReferenceCounter", "SharedPixelData", "CharTraits"
+        };
+        
+        for (const auto& pattern : skipPatterns) {
+            if (classInfo.name.find(pattern) != std::string::npos) return false;
+        }
+        
+        // Only bind classes that have substantial public interface
+        int publicMethods = 0;
+        for (const auto& method : classInfo.methods) {
+            if (method.visibility == "public" && !shouldSkipMethod(method)) {
+                publicMethods++;
+            }
+        }
+        
+        return publicMethods >= 3; // Must have at least 3 useful public methods
+    }
     std::string generateStructBinding(const ClassInfo& classInfo) const {
         std::ostringstream output;
         
