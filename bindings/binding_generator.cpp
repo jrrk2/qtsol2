@@ -282,6 +282,11 @@ private:
         // Skip classes with no useful methods
         if (classInfo.methods.empty() && classInfo.constructors.empty()) return false;
         
+        // Skip Sol2 binding infrastructure
+        if (classInfo.name.find("sol") == 0 || classInfo.qualifiedName.find("sol::") != std::string::npos) {
+            return false;
+        }
+        
         // Skip iterator types
         if (classInfo.name.find("iterator") != std::string::npos) return false;
         
@@ -298,11 +303,18 @@ private:
         // Skip internal/low-level classes
         std::vector<std::string> skipPatterns = {
             "PixelTraits", "Allocator", "AutoReentrancy", "AutoLock",
-            "ReferenceCounter", "SharedPixelData", "CharTraits"
+            "ReferenceCounter", "SharedPixelData", "CharTraits",
+            "sol_", "detail", "impl"  // Additional Sol2 and implementation details
         };
         
         for (const auto& pattern : skipPatterns) {
             if (classInfo.name.find(pattern) != std::string::npos) return false;
+        }
+        
+        // Skip classes from Sol2 headers
+        if (classInfo.fileName.find("sol") != std::string::npos || 
+            classInfo.fileName.find("lua") != std::string::npos) {
+            return false;
         }
         
         // Only bind classes that have substantial public interface
