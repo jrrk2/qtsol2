@@ -643,6 +643,9 @@ private:
             std::string fileName = getFileName(cursor);
             
             if (shouldSkipType(name, fileName)) {
+                if (verbose && (name.find("sol") != std::string::npos || name.find("usertype") != std::string::npos)) {
+                    std::cout << "SKIPPING Sol2 type: " << name << " from " << fileName << std::endl;
+                }
                 return CXChildVisit_Continue;
             }
             
@@ -651,6 +654,15 @@ private:
             }
             
             std::string qualifiedName = getFullyQualifiedName(cursor);
+            
+            // Additional Sol2 filtering by qualified name
+            if (qualifiedName.find("sol::") != std::string::npos || 
+                qualifiedName.find("lua") != std::string::npos) {
+                if (verbose) {
+                    std::cout << "SKIPPING Sol2 qualified type: " << qualifiedName << std::endl;
+                }
+                return CXChildVisit_Continue;
+            }
             
             JsonClassInfo classInfo;
             classInfo.name = name;
