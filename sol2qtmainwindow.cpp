@@ -11,6 +11,7 @@
 #include "StarStatisticsChartDialog.hpp"
 #include "ImageReader.hpp"
 #include "StarChartWidget.hpp"
+#include <pcl/Image.h>
 
 int LuaWindow::windowCounter = 0;
 Sol2QtMainWindow* Sol2QtMainWindow::instance = nullptr;
@@ -983,20 +984,8 @@ void Sol2QtMainWindow::setupImageDisplayBindings() {
                 .arg(star.spectralType).toStdString();
         }
     );
-#if 0    
-    // Bind AstrometricMetadata class
-    lua->new_usertype<pcl::AstrometricMetadata>("AstrometricMetadata",
-        sol::constructors<pcl::AstrometricMetadata()>(),
-        "IsValid", &pcl::AstrometricMetadata::IsValid,
-        "Width", &pcl::AstrometricMetadata::Width,
-        "Height", &pcl::AstrometricMetadata::Height
-						/*
-						  "RA", &pcl::AstrometricMetadata::RA,
-						  "Dec", &pcl::AstrometricMetadata::Dec,
-						  "FocalLength", &pcl::AstrometricMetadata::FocalLength,
-						  "PixelSize", &pcl::AstrometricMetadata::PixelSize
-						*/
-    );
+#if 1
+#include "AstrometricMetadata_bindings.h"    
 #endif        
     // Bind StarCatalogValidator class - only include methods that exist in your class
     lua->new_usertype<StarCatalogValidator>("StarCatalogValidator",
