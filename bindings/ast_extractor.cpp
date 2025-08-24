@@ -73,6 +73,8 @@ struct JsonMethod {
     bool isMetamethod = false;
     bool isToString = false;
     std::string luaMetamethod;
+    bool isProblematic = false;      // NEW: method causes compilation issues
+    bool hasComplexParameters = false;  // NEW: has parameters that need special handling
     
     std::string toJson() const {
         std::ostringstream json;
@@ -99,6 +101,8 @@ struct JsonMethod {
         json << "    \"isConverter\": " << (isConverter ? "true" : "false") << ",\n";
         json << "    \"isMetamethod\": " << (isMetamethod ? "true" : "false") << ",\n";
         json << "    \"isToString\": " << (isToString ? "true" : "false") << ",\n";
+        json << "    \"isProblematic\": " << (isProblematic ? "true" : "false") << ",\n";
+        json << "    \"hasComplexParameters\": " << (hasComplexParameters ? "true" : "false") << ",\n";
         json << "    \"luaMetamethod\": \"" << escapeJson(luaMetamethod) << "\"\n";
         json << "  }";
         return json.str();
@@ -127,6 +131,7 @@ struct JsonField {
     std::string visibility = "public";
     bool isStatic = false;
     bool isMutable = false;
+    bool isBitField = false;  // NEW: detect bit-fields
     
     std::string toJson() const {
         std::ostringstream json;
@@ -136,6 +141,7 @@ struct JsonField {
         json << "    \"visibility\": \"" << visibility << "\",\n";
         json << "    \"isStatic\": " << (isStatic ? "true" : "false") << ",\n";
         json << "    \"isMutable\": " << (isMutable ? "true" : "false") << "\n";
+        json << "    \"isBitField\": " << (isBitField ? "true" : "false") << "\n";
         json << "  }";
         return json.str();
     }
@@ -177,6 +183,8 @@ struct JsonClassInfo {
     bool isValueType = false;
     bool isMetadata = false;
     bool isAlgorithm = false;
+    bool isBindable = true;      // NEW: can this class be safely bound?
+    bool hasBitFields = false;   // NEW: does this class have bit-field members?
     
     std::string toJson() const {
         std::ostringstream json;
@@ -222,6 +230,8 @@ struct JsonClassInfo {
         json << "  \"isValueType\": " << (isValueType ? "true" : "false") << ",\n";
         json << "  \"isMetadata\": " << (isMetadata ? "true" : "false") << ",\n";
         json << "  \"isAlgorithm\": " << (isAlgorithm ? "true" : "false") << "\n";
+        json << "  \"isBindable\": " << (isBindable ? "true" : "false") << ",\n";
+        json << "  \"hasBitFields\": " << (hasBitFields ? "true" : "false") << ",\n";
         json << "}";
         return json.str();
     }
@@ -261,11 +271,33 @@ private:
     std::unordered_set<std::string> setterPatterns = {
         "set", "add", "remove", "clear", "reset", "update", "enable", "disable"
     };
+    // Add detection for problematic patterns
+    std::unordered_set<std::string> protectedConstructorClasses = {
+        "UIObject", "ReferenceCounter"
+    };
+    
+    std::unordered_set<std::string> bitFieldStructs = {
+        "ISO8601ConversionOptions", "SexagesimalConversionOptions", 
+        "RandomizationOptions"
+    };
+    
+    std::unordered_set<std::string> problematicMethods = {
+        "UTF16ToUTF32", "UTF8ToUTF16", "UTF16ToUTF8", "Null"
+    };
     
 public:
     void analyzeClass(JsonClassInfo& classInfo) {
+
         classifyClass(classInfo);
+        // Mark problematic classes
+        if (hasProtectedConstructors(classInfo)) {
+            classInfo.isBindable = false;
+        }
         
+        if (hasBitFields(classInfo)) {
+            classInfo.hasBitFields = true;
+        }
+                
         for (auto& method : classInfo.methods) {
             analyzeMethod(method, classInfo);
         }
@@ -299,7 +331,19 @@ private:
     
     void analyzeMethod(JsonMethod& method, const JsonClassInfo& classInfo) {
         std::string lowerName = toLower(method.name);
+
+        // Mark problematic methods
+        method.isProblematic = problematicMethods.count(method.name) > 0;
         
+        // Detect methods that need special parameter handling
+        for (const auto& param : method.parameters) {
+            if (param.type.find("const_c_string") != std::string::npos ||
+                param.type.find("wchar_t") != std::string::npos ||
+                param.type.find("char16_t") != std::string::npos) {
+                method.hasComplexParameters = true;
+            }
+        }
+                
         method.isMetamethod = isOperatorMethod(method.name);
         if (method.isMetamethod) {
             method.luaMetamethod = getLuaMetamethod(method.name);
@@ -380,7 +424,26 @@ private:
         }
         return false;
     }
+
+    bool hasProtectedConstructors(const JsonClassInfo& classInfo) {
+        for (const auto& pattern : protectedConstructorClasses) {
+            if (classInfo.name.find(pattern) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
     
+    bool hasBitFields(const JsonClassInfo& classInfo) {
+        for (const auto& pattern : bitFieldStructs) {
+            if (classInfo.name.find(pattern) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+  
     std::string toLower(const std::string& str) {
         std::string result = str;
         std::transform(result.begin(), result.end(), result.begin(), ::tolower);
@@ -698,6 +761,12 @@ private:
                     field.name = extractor->getCursorSpelling(cursor);
                     field.type = extractor->getTypeSpelling(clang_getCursorType(cursor));
                     field.isStatic = clang_CXXMethod_isStatic(cursor);
+                
+		    // Check for bit-fields
+		    if (clang_getFieldDeclBitWidth(cursor) >= 0) {
+			field.isBitField = true;
+			classInfo->hasBitFields = true;
+		    }
                     
                     CX_CXXAccessSpecifier access = clang_getCXXAccessSpecifier(cursor);
                     switch (access) {
@@ -707,7 +776,7 @@ private:
                         default: field.visibility = classInfo->isStruct ? "public" : "private"; break;
                     }
                     
-                    if (field.visibility == "public") {
+                    if (field.visibility == "public" && !field.isBitField) {
                         classInfo->fields.push_back(std::move(field));
                     }
                     break;

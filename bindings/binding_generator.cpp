@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <sstream>
 #include <cctype>
+#include <regex>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -608,7 +609,9 @@ private:
             } else if (param.type.find("pcl::String") != std::string::npos) {
                 output << "const std::string& " << param.name;
             } else {
-                output << param.type << " " << param.name;
+                // Ensure PCL types are fully qualified
+                std::string paramType = qualifyPCLType(param.type);
+                output << paramType << " " << param.name;
             }
         }
         
@@ -675,6 +678,39 @@ private:
         
         output << "        }";
         return output.str();
+    }
+    
+    // Helper function to ensure PCL types are fully qualified
+    std::string qualifyPCLType(const std::string& type) const {
+        std::string result = type;
+        
+        // List of PCL types that need qualification
+        std::vector<std::pair<std::string, std::string>> pclTypes = {
+            {"IsoString", "pcl::IsoString"},
+            {"String", "pcl::String"}, 
+            {"DPoint", "pcl::DPoint"},
+            {"FPoint", "pcl::FPoint"},
+            {"Point", "pcl::Point"},
+            {"DRect", "pcl::DRect"},
+            {"Rect", "pcl::Rect"},
+            {"TimePoint", "pcl::TimePoint"},
+            {"PropertyArray", "pcl::PropertyArray"},
+            {"FITSKeywordArray", "pcl::FITSKeywordArray"},
+            {"ProjectionBase", "pcl::ProjectionBase"},
+            {"WorldTransformation", "pcl::WorldTransformation"},
+            {"WCSKeywords", "pcl::WCSKeywords"}
+        };
+        
+        for (const auto& [shortName, fullName] : pclTypes) {
+            // Only replace if it's not already qualified
+            if (result.find("pcl::" + shortName) == std::string::npos) {
+                // Use word boundary to avoid partial matches
+                std::regex pattern("\\b" + shortName + "\\b");
+                result = std::regex_replace(result, pattern, fullName);
+            }
+        }
+        
+        return result;
     }
     
     std::string generateStringConversionBinding(const Method& method, const ClassInfo& classInfo) const {
