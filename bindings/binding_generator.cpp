@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 #include <sstream>
@@ -21,7 +22,6 @@ struct Parameter {
     bool isPointer = false;
     bool isOptional = false;
     
-    // JSON deserialization
     void from_json(const json& j) {
         type = j.value("type", "");
         name = j.value("name", "");
@@ -44,7 +44,6 @@ struct Method {
     bool isConstructor = false;
     bool isDestructor = false;
     
-    // Classification flags
     bool isGetter = false;
     bool isSetter = false;
     bool isValidator = false;
@@ -53,7 +52,6 @@ struct Method {
     bool isToString = false;
     std::string luaMetamethod;
     
-    // JSON deserialization
     void from_json(const json& j) {
         name = j.value("name", "");
         returnType = j.value("returnType", "");
@@ -71,7 +69,6 @@ struct Method {
         isToString = j.value("isToString", false);
         luaMetamethod = j.value("luaMetamethod", "");
         
-        // Parse parameters array
         if (j.contains("parameters") && j["parameters"].is_array()) {
             for (const auto& paramJson : j["parameters"]) {
                 Parameter param;
@@ -89,7 +86,6 @@ struct Field {
     bool isStatic = false;
     bool isMutable = false;
     
-    // JSON deserialization
     void from_json(const json& j) {
         name = j.value("name", "");
         type = j.value("type", "");
@@ -111,7 +107,6 @@ struct ClassInfo {
     std::vector<Method> methods;
     std::vector<Method> constructors;
     
-    // Classification flags
     bool isPCLClass = false;
     bool isQtClass = false;
     bool hasQObject = false;
@@ -120,7 +115,6 @@ struct ClassInfo {
     bool isMetadata = false;
     bool isAlgorithm = false;
     
-    // JSON deserialization
     void from_json(const json& j) {
         name = j.value("name", "");
         qualifiedName = j.value("qualifiedName", "");
@@ -135,7 +129,6 @@ struct ClassInfo {
         isMetadata = j.value("isMetadata", false);
         isAlgorithm = j.value("isAlgorithm", false);
         
-        // Parse arrays
         if (j.contains("baseClasses") && j["baseClasses"].is_array()) {
             baseClasses = j["baseClasses"].get<std::vector<std::string>>();
         }
@@ -166,10 +159,23 @@ struct ClassInfo {
     }
 };
 
-// Binding generator
 class BindingGenerator {
 private:
     bool verbose = false;
+    
+    // Known problematic classes/methods
+    std::unordered_set<std::string> problematicClasses = {
+        "pcl::UIObject"  // Has protected constructors
+    };
+    
+    std::unordered_set<std::string> bitFieldStructs = {
+        "pcl::ISO8601ConversionOptions",
+        "pcl::SexagesimalConversionOptions"
+    };
+    
+    std::unordered_set<std::string> problematicMethods = {
+        "Null", "UTF16ToUTF32", "UTF8ToUTF16", "UTF16ToUTF8"
+    };
     
 public:
     void setVerbose(bool v) { verbose = v; }
@@ -196,26 +202,10 @@ public:
             return classes;
         }
         
-        // Parse each class
         for (const auto& [className, classJson] : jsonData["classes"].items()) {
             ClassInfo classInfo;
             classInfo.from_json(classJson);
             classes[className] = classInfo;
-            
-            if (verbose && className.find("AstrometricMetadata") != std::string::npos) {
-                std::cout << "Loaded " << className << ":" << std::endl;
-                std::cout << "  Methods: " << classInfo.methods.size() << std::endl;
-                std::cout << "  Constructors: " << classInfo.constructors.size() << std::endl;
-                std::cout << "  Fields: " << classInfo.fields.size() << std::endl;
-                if (!classInfo.methods.empty()) {
-                    std::cout << "  Sample methods: ";
-                    for (size_t i = 0; i < std::min(size_t(5), classInfo.methods.size()); ++i) {
-                        if (i > 0) std::cout << ", ";
-                        std::cout << classInfo.methods[i].name;
-                    }
-                    std::cout << std::endl;
-                }
-            }
         }
         
         if (verbose) {
@@ -233,23 +223,25 @@ public:
         
         int boundClasses = 0;
         
-        // Generate bindings for each class - but be selective
         for (const auto& [name, classInfo] : classes) {
-            // Only bind classes that make sense for Lua scripting
+            if (shouldSkipClass(classInfo)) {
+                if (verbose) {
+                    std::cout << "Skipping problematic class: " << name << std::endl;
+                }
+                continue;
+            }
+            
             bool shouldBind = false;
             
             if (classInfo.isPCLClass && classInfo.isMetadata && name.find("AstrometricMetadata") != std::string::npos) {
-                // Always bind AstrometricMetadata
                 shouldBind = true;
                 output << generateAstrometricMetadataBinding(classInfo) << "\n\n";
                 boundClasses++;
             } else if (classInfo.isStruct && !classInfo.fields.empty() && isBindableStruct(classInfo)) {
-                // Only bind structs with useful public fields
                 shouldBind = true;
                 output << generateStructBinding(classInfo) << "\n\n";
                 boundClasses++;
             } else if (!classInfo.isStruct && isBindableClass(classInfo)) {
-                // Only bind classes with useful public methods
                 shouldBind = true;
                 output << generateClassBinding(classInfo) << "\n\n";
                 boundClasses++;
@@ -266,59 +258,55 @@ public:
     }
     
 private:
+    bool shouldSkipClass(const ClassInfo& classInfo) const {
+        return problematicClasses.count(classInfo.qualifiedName) > 0;
+    }
+    
     bool isBindableStruct(const ClassInfo& classInfo) const {
-        // Only bind structs that are useful for Lua scripting
+        if (bitFieldStructs.count(classInfo.qualifiedName) > 0) {
+            return false; // Skip structs with bit fields
+        }
+        
         if (classInfo.name == "DescriptionItems") return true;
         if (classInfo.name.find("Options") != std::string::npos && !classInfo.fields.empty()) return true;
         
-        // Skip internal/nested structs
         if (classInfo.name.find("::") != std::string::npos) return false;
         if (classInfo.name.find("Data") != std::string::npos) return false;
         if (classInfo.name.find("Thread") != std::string::npos) return false;
         
-        return classInfo.fields.size() >= 2; // Must have some useful fields
+        return classInfo.fields.size() >= 2;
     }
     
     bool isBindableClass(const ClassInfo& classInfo) const {
-        // Skip classes with no useful methods
         if (classInfo.methods.empty() && classInfo.constructors.empty()) return false;
         
-        // Skip Sol2 binding infrastructure
         if (classInfo.name.find("sol") == 0 || classInfo.qualifiedName.find("sol::") != std::string::npos) {
             return false;
         }
         
-        // Skip iterator types
         if (classInfo.name.find("iterator") != std::string::npos) return false;
-        
-        // Skip thread types
         if (classInfo.name.find("Thread") != std::string::npos) return false;
         
-        // Skip nested types that aren't useful for scripting
         if (classInfo.name.find("::") != std::string::npos) {
-            // Allow some useful nested types
             if (classInfo.name.find("DescriptionItems") != std::string::npos) return true;
             return false;
         }
         
-        // Skip internal/low-level classes
         std::vector<std::string> skipPatterns = {
             "PixelTraits", "Allocator", "AutoReentrancy", "AutoLock",
             "ReferenceCounter", "SharedPixelData", "CharTraits",
-            "sol_", "detail", "impl"  // Additional Sol2 and implementation details
+            "sol_", "detail", "impl"
         };
         
         for (const auto& pattern : skipPatterns) {
             if (classInfo.name.find(pattern) != std::string::npos) return false;
         }
         
-        // Skip classes from Sol2 headers
         if (classInfo.fileName.find("sol") != std::string::npos || 
             classInfo.fileName.find("lua") != std::string::npos) {
             return false;
         }
         
-        // Only bind classes that have substantial public interface
         int publicMethods = 0;
         for (const auto& method : classInfo.methods) {
             if (method.visibility == "public" && !shouldSkipMethod(method)) {
@@ -326,8 +314,9 @@ private:
             }
         }
         
-        return publicMethods >= 3; // Must have at least 3 useful public methods
+        return publicMethods >= 3;
     }
+    
     std::string generateStructBinding(const ClassInfo& classInfo) const {
         std::ostringstream output;
         
@@ -339,7 +328,6 @@ private:
         
         std::vector<std::string> bindings;
         
-        // Add public fields
         for (const auto& field : classInfo.fields) {
             if (field.visibility == "public" && !field.type.empty()) {
                 bindings.push_back("        \"" + toLuaName(field.name) + "\", &" + classInfo.qualifiedName + "::" + field.name);
@@ -365,7 +353,7 @@ private:
         
         std::vector<std::string> bindings;
         
-        // Add default constructor
+        // Add default constructor if available
         bool hasDefaultConstructor = false;
         for (const auto& ctor : classInfo.constructors) {
             if (ctor.parameters.empty()) {
@@ -378,31 +366,28 @@ private:
             bindings.push_back("        sol::constructors<" + classInfo.qualifiedName + "()>()");
         }
         
-        // Priority methods for AstrometricMetadata
+        // Priority methods for AstrometricMetadata - limit to most important
         std::vector<std::string> priorityMethods = {
             "Build", "IsValid", "Width", "Height", "Bounds",
-            "ImageToCelestial", "CelestialToImage", "ImageCenterToCelestial", 
-            "RawImageToCelestial", "Resolution", "SearchRadius", 
-            "ResolutionFromFocal", "FocalFromResolution", "ResolutionAt",
-            "ObservationStartTime", "ObservationEndTime", "ObservationMiddleTime",
+            "ImageToCelestial", "CelestialToImage", "Resolution", 
+            "ObservationStartTime", "ObservationEndTime", 
             "LocationLongitude", "LocationLatitude", "LocationHeight",
             "SetLocationLongitude", "SetLocationLatitude", "SetLocationHeight",
-            "SetObservationStartTime", "SetObservationEndTime", 
             "PixelSize", "SetPixelSize", "ReferenceSystem", "SetReferenceSystem",
-            "HasSplineWorldTransformation", "EnsureSplineGridInterpolationsInitialized",
-            "Undistorted", "Validate", "Verify", "ToProperties", "Summary",
-            "Projection", "WorldTransform", "Rotation", "CreationTime",
-            "Catalog", "CreatorApplication", "CreatorModule", "CreatorOS"
+            "Validate", "ToProperties", "Summary"
         };
         
-        // Add priority methods first
-        int foundPriorityMethods = 0;
+        // Add priority methods with limits to avoid Sol2 template issues
+        int addedMethods = 0;
+        const int MAX_BINDINGS = 25; // Limit to avoid template recursion
+        
         for (const std::string& priorityName : priorityMethods) {
+            if (addedMethods >= MAX_BINDINGS) break;
+            
             auto it = std::find_if(classInfo.methods.begin(), classInfo.methods.end(),
                 [&priorityName](const Method& m) { return m.name == priorityName; });
             
             if (it != classInfo.methods.end()) {
-                foundPriorityMethods++;
                 std::string luaName = toLuaName(it->name);
                 
                 if (needsSpecialBinding(*it)) {
@@ -410,49 +395,28 @@ private:
                 } else {
                     bindings.push_back("        \"" + luaName + "\", &" + classInfo.qualifiedName + "::" + it->name);
                 }
+                addedMethods++;
             }
-        }
-        
-        if (verbose) {
-            std::cout << "Found " << foundPriorityMethods << " priority methods for AstrometricMetadata" << std::endl;
         }
         
         // Add metamethods
         for (const auto& method : classInfo.methods) {
+            if (addedMethods >= MAX_BINDINGS) break;
+            
             if (method.isMetamethod && !method.luaMetamethod.empty()) {
                 if (method.name == "operator=" && method.parameters.size() == 1) {
                     continue; // Skip assignment operator
                 }
                 
-                if (method.isToString || method.name == "Summary") {
-                    bindings.push_back(generateStringConversionBinding(method, classInfo));
-                } else {
-                    bindings.push_back("        " + method.luaMetamethod + ", &" + 
-                                     classInfo.qualifiedName + "::" + method.name);
-                }
+                bindings.push_back("        " + method.luaMetamethod + ", &" + 
+                                 classInfo.qualifiedName + "::" + method.name);
+                addedMethods++;
             }
         }
         
-        // Add remaining important methods
-        for (const auto& method : classInfo.methods) {
-            auto it = std::find(priorityMethods.begin(), priorityMethods.end(), method.name);
-            if (it != priorityMethods.end() || method.isMetamethod || shouldSkipMethod(method)) {
-                continue;
-            }
-            
-            std::string luaName = toLuaName(method.name);
-            
-            if (needsSpecialBinding(method)) {
-                bindings.push_back(generateSpecialMethodBinding(method, classInfo, luaName));
-            } else {
-                bindings.push_back("        \"" + luaName + "\", &" + classInfo.qualifiedName + "::" + method.name);
-            }
-        }
-        
-        // Output all bindings
         if (!bindings.empty()) {
             output << bindings[0];
-            for (size_t i = 1; i < bindings.size(); ++i) {
+            for (size_t i = 1; i < bindings.size() && i < MAX_BINDINGS; ++i) {
                 output << ",\n" << bindings[i];
             }
         }
@@ -471,8 +435,9 @@ private:
         output << "    lua->new_usertype<" << classInfo.qualifiedName << ">(\"" << simpleName << "\",\n";
         
         std::vector<std::string> bindings;
+        const int MAX_BINDINGS = 20; // Limit to avoid Sol2 template issues
         
-        // Add constructors
+        // Add default constructor if available
         bool hasDefaultConstructor = false;
         for (const auto& ctor : classInfo.constructors) {
             if (ctor.parameters.empty()) {
@@ -485,75 +450,41 @@ private:
             bindings.push_back("        sol::constructors<" + classInfo.qualifiedName + "()>()");
         }
         
-        // Group methods by name for overload handling
-        std::unordered_map<std::string, std::vector<Method>> methodGroups;
+        // Add methods with limit
+        int addedMethods = 0;
         for (const auto& method : classInfo.methods) {
-            if (!shouldSkipMethod(method)) {
-                methodGroups[method.name].push_back(method);
-            }
-        }
-        
-        // Add method bindings
-        for (const auto& [methodName, overloads] : methodGroups) {
-            std::string luaName = toLuaName(methodName);
-            
-            // Check if any overload is a metamethod
-            bool isMetamethod = false;
-            std::string metamethodName;
-            const Method* metamethod = nullptr;
-            
-            for (const auto& method : overloads) {
-                if (method.isMetamethod && !method.luaMetamethod.empty()) {
-                    isMetamethod = true;
-                    metamethodName = method.luaMetamethod;
-                    metamethod = &method;
-                    break;
-                }
+            if (addedMethods >= MAX_BINDINGS || shouldSkipMethod(method)) {
+                continue;
             }
             
-            if (isMetamethod && metamethod) {
-                // Handle metamethods specially
-                if (metamethod->isToString || metamethod->name == "Summary") {
-                    bindings.push_back(generateStringConversionBinding(*metamethod, classInfo));
-                } else if (metamethod->name == "operator=" && metamethod->parameters.size() == 1) {
-                    continue; // Skip assignment operator
-                } else {
-                    bindings.push_back("        " + metamethodName + ", &" + 
-                                     classInfo.qualifiedName + "::" + metamethod->name);
+            std::string luaName = toLuaName(method.name);
+            
+            if (method.isMetamethod && !method.luaMetamethod.empty()) {
+                if (method.name == "operator=" && method.parameters.size() == 1) {
+                    continue;
                 }
-            } else if (overloads.size() == 1) {
-                // Single overload
-                const auto& method = overloads[0];
-                if (needsSpecialBinding(method)) {
-                    bindings.push_back(generateSpecialMethodBinding(method, classInfo, luaName));
-                } else {
-                    bindings.push_back("        \"" + luaName + "\", &" + classInfo.qualifiedName + "::" + methodName);
-                }
+                bindings.push_back("        " + method.luaMetamethod + ", &" + 
+                                 classInfo.qualifiedName + "::" + method.name);
+            } else if (needsSpecialBinding(method)) {
+                bindings.push_back(generateSpecialMethodBinding(method, classInfo, luaName));
             } else {
-                // Multiple overloads - bind the simplest one
-                auto simpleMethod = std::min_element(overloads.begin(), overloads.end(),
-                    [](const Method& a, const Method& b) {
-                        return a.parameters.size() < b.parameters.size();
-                    });
-                
-                if (needsSpecialBinding(*simpleMethod)) {
-                    bindings.push_back(generateSpecialMethodBinding(*simpleMethod, classInfo, luaName));
-                } else {
-                    bindings.push_back("        \"" + luaName + "\", &" + classInfo.qualifiedName + "::" + methodName);
-                }
+                bindings.push_back("        \"" + luaName + "\", &" + classInfo.qualifiedName + "::" + method.name);
             }
+            addedMethods++;
         }
         
         // Add public fields
         for (const auto& field : classInfo.fields) {
+            if (addedMethods >= MAX_BINDINGS) break;
             if (field.visibility == "public") {
                 bindings.push_back("        \"" + toLuaName(field.name) + "\", &" + classInfo.qualifiedName + "::" + field.name);
+                addedMethods++;
             }
         }
         
         if (!bindings.empty()) {
             output << bindings[0];
-            for (size_t i = 1; i < bindings.size(); ++i) {
+            for (size_t i = 1; i < bindings.size() && i < MAX_BINDINGS; ++i) {
                 output << ",\n" << bindings[i];
             }
         }
@@ -564,20 +495,19 @@ private:
     
     bool needsSpecialBinding(const Method& method) const {
         if (method.isStatic) return true;
+        if (problematicMethods.count(method.name) > 0) return true;
         
         for (const auto& param : method.parameters) {
             if (param.type.find("PropertyArray") != std::string::npos ||
                 param.type.find("FITSKeywordArray") != std::string::npos ||
                 param.type.find("QString") != std::string::npos ||
-                param.type.find("pcl::String") != std::string::npos ||
                 param.isOptional) {
                 return true;
             }
         }
         
         if (method.returnType.find("Optional<") != std::string::npos ||
-            method.returnType.find("QString") != std::string::npos ||
-            method.returnType.find("pcl::String") != std::string::npos) {
+            method.returnType.find("QString") != std::string::npos) {
             return true;
         }
         
@@ -586,6 +516,12 @@ private:
     
     std::string generateSpecialMethodBinding(const Method& method, const ClassInfo& classInfo, const std::string& luaName) const {
         std::ostringstream output;
+        
+        // Skip methods we know are problematic
+        if (problematicMethods.count(method.name) > 0) {
+            output << "        // SKIPPED: " << method.name << " (known problematic)";
+            return output.str();
+        }
         
         output << "        \"" << luaName << "\", [](";
         
@@ -596,83 +532,65 @@ private:
             }
         }
         
-        for (size_t i = 0; i < method.parameters.size(); ++i) {
-            if (i > 0) output << ", ";
-            const auto& param = method.parameters[i];
-            
-            if (param.type.find("PropertyArray") != std::string::npos) {
-                output << "sol::table " << param.name;
-            } else if (param.type.find("FITSKeywordArray") != std::string::npos) {
-                output << "sol::table " << param.name;
+        // Generate safe parameter list
+        std::vector<std::string> paramDecls;
+        std::vector<std::string> paramCalls;
+        
+        for (const auto& param : method.parameters) {
+            if (param.type.find("PropertyArray") != std::string::npos ||
+                param.type.find("FITSKeywordArray") != std::string::npos) {
+                // Skip complex types for now
+                continue;
             } else if (param.type.find("QString") != std::string::npos) {
-                output << "const std::string& " << param.name;
-            } else if (param.type.find("pcl::String") != std::string::npos) {
-                output << "const std::string& " << param.name;
+                paramDecls.push_back("const std::string& " + param.name);
+                paramCalls.push_back("QString::fromStdString(" + param.name + ")");
             } else {
-                // Ensure PCL types are fully qualified
                 std::string paramType = qualifyPCLType(param.type);
-                output << paramType << " " << param.name;
+                paramDecls.push_back(paramType + " " + param.name);
+                paramCalls.push_back(param.name);
             }
+        }
+        
+        // Output parameter declarations
+        for (size_t i = 0; i < paramDecls.size(); ++i) {
+            if (i > 0) output << ", ";
+            output << paramDecls[i];
         }
         
         output << ") {\n";
         
-        // Check for unsupported parameters
-        bool hasUnsupportedParams = false;
-        for (const auto& param : method.parameters) {
-            if (param.type.find("PropertyArray") != std::string::npos ||
-                param.type.find("FITSKeywordArray") != std::string::npos) {
-                hasUnsupportedParams = true;
-                break;
-            }
+        // Generate the method call
+        if (method.returnType != "void") {
+            output << "            auto result = ";
+        } else {
+            output << "            ";
         }
         
-        if (hasUnsupportedParams) {
-            output << "            throw std::runtime_error(\"Method not yet implemented: requires complex type conversion\");\n";
+        if (method.isStatic) {
+            output << classInfo.qualifiedName << "::" << method.name << "(";
         } else {
-            // Generate the method call
-            if (method.returnType != "void") {
-                output << "            auto result = ";
+            output << "obj." << method.name << "(";
+        }
+        
+        for (size_t i = 0; i < paramCalls.size(); ++i) {
+            if (i > 0) output << ", ";
+            output << paramCalls[i];
+        }
+        
+        output << ");\n";
+        
+        // Handle return value conversion
+        if (method.returnType != "void") {
+            if (method.returnType.find("Optional<") != std::string::npos) {
+                output << "            if (result.IsDefined()) {\n";
+                output << "                return result();\n";
+                output << "            } else {\n";
+                output << "                return sol::nil;\n";
+                output << "            }\n";
+            } else if (method.returnType.find("QString") != std::string::npos) {
+                output << "            return result.toStdString();\n";
             } else {
-                output << "            ";
-            }
-            
-            if (method.isStatic) {
-                output << classInfo.qualifiedName << "::" << method.name << "(";
-            } else {
-                output << "obj." << method.name << "(";
-            }
-            
-            for (size_t i = 0; i < method.parameters.size(); ++i) {
-                if (i > 0) output << ", ";
-                const auto& param = method.parameters[i];
-                
-                if (param.type.find("QString") != std::string::npos) {
-                    output << "QString::fromStdString(" << param.name << ")";
-                } else if (param.type.find("pcl::String") != std::string::npos) {
-                    output << "pcl::String(" << param.name << ")";
-                } else {
-                    output << param.name;
-                }
-            }
-            
-            output << ");\n";
-            
-            // Handle return value conversion
-            if (method.returnType != "void") {
-                if (method.returnType.find("Optional<") != std::string::npos) {
-                    output << "            if (result.IsDefined()) {\n";
-                    output << "                return result();\n";
-                    output << "            } else {\n";
-                    output << "                return sol::nil;\n";
-                    output << "            }\n";
-                } else if (method.returnType.find("QString") != std::string::npos) {
-                    output << "            return result.toStdString();\n";
-                } else if (method.returnType.find("pcl::String") != std::string::npos) {
-                    output << "            return std::string(result.c_str());\n";
-                } else {
-                    output << "            return result;\n";
-                }
+                output << "            return result;\n";
             }
         }
         
@@ -680,31 +598,22 @@ private:
         return output.str();
     }
     
-    // Helper function to ensure PCL types are fully qualified
     std::string qualifyPCLType(const std::string& type) const {
         std::string result = type;
         
-        // List of PCL types that need qualification
         std::vector<std::pair<std::string, std::string>> pclTypes = {
+            {"RandomizationOptions", "pcl::RandomizationOptions"},
+            {"ISO8601ConversionOptions", "pcl::ISO8601ConversionOptions"},
+            {"SexagesimalConversionOptions", "pcl::SexagesimalConversionOptions"},
             {"IsoString", "pcl::IsoString"},
-            {"String", "pcl::String"}, 
+            {"String", "pcl::String"},
             {"DPoint", "pcl::DPoint"},
             {"FPoint", "pcl::FPoint"},
-            {"Point", "pcl::Point"},
-            {"DRect", "pcl::DRect"},
-            {"Rect", "pcl::Rect"},
-            {"TimePoint", "pcl::TimePoint"},
-            {"PropertyArray", "pcl::PropertyArray"},
-            {"FITSKeywordArray", "pcl::FITSKeywordArray"},
-            {"ProjectionBase", "pcl::ProjectionBase"},
-            {"WorldTransformation", "pcl::WorldTransformation"},
-            {"WCSKeywords", "pcl::WCSKeywords"}
+            {"TimePoint", "pcl::TimePoint"}
         };
         
         for (const auto& [shortName, fullName] : pclTypes) {
-            // Only replace if it's not already qualified
             if (result.find("pcl::" + shortName) == std::string::npos) {
-                // Use word boundary to avoid partial matches
                 std::regex pattern("\\b" + shortName + "\\b");
                 result = std::regex_replace(result, pattern, fullName);
             }
@@ -713,31 +622,10 @@ private:
         return result;
     }
     
-    std::string generateStringConversionBinding(const Method& method, const ClassInfo& classInfo) const {
-        std::ostringstream output;
-        
-        output << "        sol::meta_function::to_string, [](const " << classInfo.qualifiedName << "& obj) {\n";
-        
-        if (method.returnType.find("QString") != std::string::npos) {
-            output << "            return obj." << method.name << "().toStdString();\n";
-        } else if (method.returnType.find("pcl::String") != std::string::npos) {
-            output << "            return std::string(obj." << method.name << "().c_str());\n";
-        } else if (method.returnType.find("std::string") != std::string::npos) {
-            output << "            return obj." << method.name << "();\n";
-        } else {
-            output << "            std::ostringstream oss;\n";
-            output << "            oss << obj." << method.name << "();\n";
-            output << "            return oss.str();\n";
-        }
-        
-        output << "        }";
-        return output.str();
-    }
-    
     bool shouldSkipMethod(const Method& method) const {
         if (method.visibility != "public") return true;
-        
         if (method.name.empty() || method.name[0] == '~') return true;
+        if (problematicMethods.count(method.name) > 0) return true;
         
         // Skip problematic operators but allow useful ones
         if (method.name.find("operator") == 0) {
@@ -747,12 +635,12 @@ private:
                 method.name == "operator+" || method.name == "operator-" ||
                 method.name == "operator*" || method.name == "operator/" ||
                 method.name == "operator[]" || method.name == "operator()") {
-                return false;  // Don't skip these
+                return false;
             }
             if (method.name == "operator=" && method.parameters.size() == 1) {
-                return true;   // Skip assignment - Sol2 handles automatically
+                return true;
             }
-            return true;  // Skip other operators by default
+            return true;
         }
         
         // Skip Qt meta methods
@@ -761,14 +649,12 @@ private:
             return true;
         }
         
-        // Skip methods starting with underscore
         if (method.name[0] == '_') return true;
         
         return false;
     }
     
     std::string toLuaName(const std::string& cppName) const {
-        // Convert CamelCase to snake_case for Lua
         std::string result;
         for (size_t i = 0; i < cppName.length(); ++i) {
             if (i > 0 && std::isupper(cppName[i]) && std::islower(cppName[i-1])) {
@@ -792,7 +678,6 @@ int main(int argc, char* argv[]) {
     std::string outputFile = argv[2];
     bool verbose = false;
     
-    // Parse options
     for (int i = 3; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-v") {
@@ -801,16 +686,14 @@ int main(int argc, char* argv[]) {
     }
     
     if (verbose) {
-        std::cout << "Stage 2: Binding Generation with nlohmann/json\n";
+        std::cout << "Stage 2: Fixed Binding Generation\n";
         std::cout << "Input JSON: " << inputFile << "\n";
         std::cout << "Output file: " << outputFile << "\n";
     }
     
-    // Create binding generator
     BindingGenerator generator;
     generator.setVerbose(verbose);
     
-    // Load classes from JSON
     auto classes = generator.loadFromJson(inputFile);
     
     if (classes.empty()) {
@@ -820,19 +703,8 @@ int main(int argc, char* argv[]) {
     
     std::cout << "Loaded " << classes.size() << " classes from JSON\n";
     
-    // Show class summary
-    for (const auto& [name, classInfo] : classes) {
-        std::cout << "  " << name;
-        if (classInfo.isPCLClass) std::cout << " [PCL]";
-        if (classInfo.isMetadata) std::cout << " [METADATA]";
-        if (classInfo.isAlgorithm) std::cout << " [ALGORITHM]";
-        std::cout << " (" << classInfo.methods.size() << " methods)\n";
-    }
-    
-    // Generate bindings
     std::string bindings = generator.generateBindings(classes);
     
-    // Write output file
     std::ofstream out(outputFile);
     if (!out.is_open()) {
         std::cerr << "Failed to open output file: " << outputFile << std::endl;
@@ -842,7 +714,7 @@ int main(int argc, char* argv[]) {
     out << bindings;
     out.close();
     
-    std::cout << "Sol2 Lua bindings written to " << outputFile << std::endl;
+    std::cout << "Fixed Sol2 Lua bindings written to " << outputFile << std::endl;
     
     return 0;
 }

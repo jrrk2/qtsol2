@@ -1,4 +1,5 @@
 #include <sol/sol.hpp>
+#include <iostream>  // Add this for std::cerr
 #include "sol2qtmainwindow.hpp"
 #include "StarCatalogValidator.hpp"
 #include "BrightStarDatabase.hpp"
@@ -12,6 +13,7 @@
 #include "ImageReader.hpp"
 #include "StarChartWidget.hpp"
 #include <pcl/Image.h>
+#include <pcl/GnomonicProjection.h>
 
 int LuaWindow::windowCounter = 0;
 Sol2QtMainWindow* Sol2QtMainWindow::instance = nullptr;

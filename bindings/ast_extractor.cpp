@@ -140,7 +140,7 @@ struct JsonField {
         json << "    \"type\": \"" << escapeJson(type) << "\",\n";
         json << "    \"visibility\": \"" << visibility << "\",\n";
         json << "    \"isStatic\": " << (isStatic ? "true" : "false") << ",\n";
-        json << "    \"isMutable\": " << (isMutable ? "true" : "false") << "\n";
+        json << "    \"isMutable\": " << (isMutable ? "true" : "false") << ",\n";
         json << "    \"isBitField\": " << (isBitField ? "true" : "false") << "\n";
         json << "  }";
         return json.str();
@@ -229,9 +229,9 @@ struct JsonClassInfo {
         json << "  \"isContainer\": " << (isContainer ? "true" : "false") << ",\n";
         json << "  \"isValueType\": " << (isValueType ? "true" : "false") << ",\n";
         json << "  \"isMetadata\": " << (isMetadata ? "true" : "false") << ",\n";
-        json << "  \"isAlgorithm\": " << (isAlgorithm ? "true" : "false") << "\n";
+        json << "  \"isAlgorithm\": " << (isAlgorithm ? "true" : "false") << ",\n";
         json << "  \"isBindable\": " << (isBindable ? "true" : "false") << ",\n";
-        json << "  \"hasBitFields\": " << (hasBitFields ? "true" : "false") << ",\n";
+        json << "  \"hasBitFields\": " << (hasBitFields ? "true" : "false") << "\n";
         json << "}";
         return json.str();
     }
